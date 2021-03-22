@@ -11,10 +11,10 @@
 #include <AC_Avoidance/AC_Avoid.h>                 // Stop at fence library
 
 // maximum velocities and accelerations
-#define WPNAV_ACCELERATION              100.0f      // defines the default velocity vs distant curve.  maximum acceleration in cm/s/s that position controller asks for from acceleration controller
+#define WPNAV_ACCELERATION              250.0f      // maximum horizontal acceleration in cm/s/s that wp navigation will request
 #define WPNAV_ACCELERATION_MIN           50.0f      // minimum acceleration in cm/s/s - used for sanity checking _wp_accel parameter
 
-#define WPNAV_WP_SPEED                  500.0f      // default horizontal speed between waypoints in cm/s
+#define WPNAV_WP_SPEED                 1000.0f      // default horizontal speed between waypoints in cm/s
 #define WPNAV_WP_SPEED_MIN               20.0f      // minimum horizontal speed between waypoints in cm/s
 #define WPNAV_WP_TRACK_SPEED_MIN         50.0f      // minimum speed along track of the target point the vehicle is chasing in cm/s (used as target slows down before reaching destination)
 #define WPNAV_WP_RADIUS                 200.0f      // default waypoint radius in cm
@@ -55,7 +55,16 @@ public:
     void set_rangefinder_alt(bool use, bool healthy, float alt_cm) { _rangefinder_available = use; _rangefinder_healthy = healthy; _rangefinder_alt_cm = alt_cm; }
 
     // return true if range finder may be used for terrain following
-    bool rangefinder_used() const { return _rangefinder_use && _rangefinder_healthy; }
+    bool rangefinder_used() const { return _rangefinder_use; }
+    bool rangefinder_used_and_healthy() const { return _rangefinder_use && _rangefinder_healthy; }
+
+    // get expected source of terrain data if alt-above-terrain command is executed (used by Copter's ModeRTL)
+    enum class TerrainSource {
+        TERRAIN_UNAVAILABLE,
+        TERRAIN_FROM_RANGEFINDER,
+        TERRAIN_FROM_TERRAINDATABASE,
+    };
+    AC_WPNav::TerrainSource get_terrain_source() const;
 
     ///
     /// waypoint controller
@@ -88,7 +97,9 @@ public:
     /// get_wp_acceleration - returns acceleration in cm/s/s during missions
     float get_wp_acceleration() const { return _wp_accel_cmss.get(); }
 
-    /// get_wp_destination waypoint using position vector (distance from ekf origin in cm)
+    /// get_wp_destination waypoint using position vector
+    /// x,y are distance from ekf origin in cm
+    /// z may be cm above ekf origin or terrain (see origin_and_destination_are_terrain_alt method)
     const Vector3f &get_wp_destination() const { return _destination; }
 
     /// get origin using position vector (distance from ekf origin in cm)
@@ -126,6 +137,16 @@ public:
     ///     used to reset the position just before takeoff
     ///     relies on set_wp_destination or set_wp_origin_and_destination having been called first
     void shift_wp_origin_to_current_pos();
+
+    /// shifts the origin and destination horizontally to the current position
+    ///     used to reset the track when taking off without horizontal position control
+    ///     relies on set_wp_destination or set_wp_origin_and_destination having been called first
+    void shift_wp_origin_and_destination_to_current_pos_xy();
+
+    /// shifts the origin and destination horizontally to the achievable stopping point
+    ///     used to reset the track when horizontal navigation is enabled after having been disabled (see Copter's wp_navalt_min)
+    ///     relies on set_wp_destination or set_wp_origin_and_destination having been called first
+    void shift_wp_origin_and_destination_to_stopping_point_xy();
 
     /// get_wp_stopping_point_xy - calculates stopping point based on current position, velocity, waypoint acceleration
     ///		results placed in stopping_position vector
@@ -201,9 +222,6 @@ public:
     ///     next_destination should be set to the next segment's destination if the seg_end_type is SEGMENT_END_STRAIGHT or SEGMENT_END_SPLINE
     bool set_spline_origin_and_destination(const Vector3f& origin, const Vector3f& destination, bool terrain_alt, bool stopped_at_start, spline_segment_end_type seg_end_type, const Vector3f& next_destination);
 
-    /// reached_spline_destination - true when we have come within RADIUS cm of the waypoint
-    bool reached_spline_destination() const { return _flags.reached_destination; }
-
     /// update_spline - update spline controller
     bool update_spline();
 
@@ -247,6 +265,9 @@ protected:
 
     /// get_slow_down_speed - returns target speed of target point based on distance from the destination (in cm)
     float get_slow_down_speed(float dist_from_dest_cm, float accel_cmss);
+    
+    /// wp_speed_update - calculates how to change speed when changes are requested
+    void wp_speed_update(float dt);
 
     /// spline protected functions
 
@@ -288,6 +309,7 @@ protected:
 
     // waypoint controller internal variables
     uint32_t    _wp_last_update;        // time of last update_wpnav call
+    float       _wp_desired_speed_xy_cms;   // desired wp speed in cm/sec
     Vector3f    _origin;                // starting point of trip to next waypoint in cm from ekf origin
     Vector3f    _destination;           // target destination in cm from ekf origin
     Vector3f    _pos_delta_unit;        // each axis's percentage of the total track from origin to destination

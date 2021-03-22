@@ -33,14 +33,14 @@ void Copter::read_rangefinder(void)
 #if RANGEFINDER_TILT_CORRECTION == ENABLED
     const float tilt_correction = MAX(0.707f, ahrs.get_rotation_body_to_ned().c.z);
 #else
-    const float tile_correction = 1.0f;
+    const float tilt_correction = 1.0f;
 #endif
 
     // iterate through downward and upward facing lidar
     struct {
         RangeFinderState &state;
         enum Rotation orientation;
-    } rngfnd[2] = { {rangefinder_state, ROTATION_PITCH_270}, {rangefinder_up_state, ROTATION_PITCH_90}};
+    } rngfnd[2] = {{rangefinder_state, ROTATION_PITCH_270}, {rangefinder_up_state, ROTATION_PITCH_90}};
 
     for (uint8_t i=0; i < ARRAY_SIZE(rngfnd); i++) {
         // local variables to make accessing simpler
@@ -48,11 +48,14 @@ void Copter::read_rangefinder(void)
         enum Rotation rf_orient = rngfnd[i].orientation;
 
         // update health
-        rf_state.alt_healthy = ((rangefinder.status_orient(rf_orient) == RangeFinder::RangeFinder_Good) &&
+        rf_state.alt_healthy = ((rangefinder.status_orient(rf_orient) == RangeFinder::Status::Good) &&
                                 (rangefinder.range_valid_count_orient(rf_orient) >= RANGEFINDER_HEALTH_MAX));
 
         // tilt corrected but unfiltered, not glitch protected alt
         rf_state.alt_cm = tilt_correction * rangefinder.distance_cm_orient(rf_orient);
+
+        // remember inertial alt to allow us to interpolate rangefinder
+        rf_state.inertial_alt_cm = inertial_nav.get_altitude();
 
         // glitch handling.  rangefinder readings more than RANGEFINDER_GLITCH_ALT_CM from the last good reading
         // are considered a glitch and glitch_count becomes non-zero
@@ -87,10 +90,16 @@ void Copter::read_rangefinder(void)
             rf_state.last_healthy_ms = now;
         }
 
-        // send downward facing lidar altitude and health to waypoint navigation library
+        // send downward facing lidar altitude and health to the libraries that require it
         if (rf_orient == ROTATION_PITCH_270) {
             if (rangefinder_state.alt_healthy || timed_out) {
                 wp_nav->set_rangefinder_alt(rangefinder_state.enabled, rangefinder_state.alt_healthy, rangefinder_state.alt_cm_filt.get());
+#if MODE_CIRCLE_ENABLED
+                circle_nav->set_rangefinder_alt(rangefinder_state.enabled && wp_nav->rangefinder_used(), rangefinder_state.alt_healthy, rangefinder_state.alt_cm_filt.get());
+#endif
+#if PROXIMITY_ENABLED == ENABLED
+                g2.proximity.set_rangefinder_alt(rangefinder_state.enabled, rangefinder_state.alt_healthy, rangefinder_state.alt_cm_filt.get());
+#endif
             }
         }
     }
@@ -109,16 +118,34 @@ void Copter::read_rangefinder(void)
 }
 
 // return true if rangefinder_alt can be used
-bool Copter::rangefinder_alt_ok()
+bool Copter::rangefinder_alt_ok() const
 {
     return (rangefinder_state.enabled && rangefinder_state.alt_healthy);
 }
 
 // return true if rangefinder_alt can be used
-bool Copter::rangefinder_up_ok()
+bool Copter::rangefinder_up_ok() const
 {
     return (rangefinder_up_state.enabled && rangefinder_up_state.alt_healthy);
 }
+
+/*
+  get inertially interpolated rangefinder height. Inertial height is
+  recorded whenever we update the rangefinder height, then we use the
+  difference between the inertial height at that time and the current
+  inertial height to give us interpolation of height from rangefinder
+ */
+bool Copter::get_rangefinder_height_interpolated_cm(int32_t& ret)
+{
+    if (!rangefinder_alt_ok()) {
+        return false;
+    }
+    ret = rangefinder_state.alt_cm_filt.get();
+    float inertial_alt_cm = inertial_nav.get_altitude();
+    ret += inertial_alt_cm - rangefinder_state.inertial_alt_cm;
+    return true;
+}
+
 
 /*
   update RPM sensors
@@ -199,32 +226,5 @@ void Copter::init_proximity(void)
 {
 #if PROXIMITY_ENABLED == ENABLED
     g2.proximity.init();
-    g2.proximity.set_rangefinder(&rangefinder);
-#endif
-}
-
-// init visual odometry sensor
-void Copter::init_visual_odom()
-{
-#if VISUAL_ODOMETRY_ENABLED == ENABLED
-    g2.visual_odom.init();
-#endif
-}
-
-// winch and wheel encoder initialisation
-void Copter::winch_init()
-{
-#if WINCH_ENABLED == ENABLED
-    g2.wheel_encoder.init();
-    g2.winch.init(&g2.wheel_encoder);
-#endif
-}
-
-// winch and wheel encoder update
-void Copter::winch_update()
-{
-#if WINCH_ENABLED == ENABLED
-    g2.wheel_encoder.update();
-    g2.winch.update();
 #endif
 }

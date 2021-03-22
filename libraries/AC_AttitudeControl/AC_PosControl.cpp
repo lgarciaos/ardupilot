@@ -114,16 +114,48 @@ const AP_Param::GroupInfo AC_PosControl::var_info[] = {
     // @Range: 0.000 0.400
     // @User: Standard
 
-    // @Param: _ACCZ_FILT
-    // @DisplayName: Acceleration (vertical) controller filter
-    // @Description: Filter applied to acceleration to reduce noise.  Lower values reduce noise but add delay.
-    // @Range: 1.000 100.000
+    // @Param: _ACCZ_FF
+    // @DisplayName: Acceleration (vertical) controller feed forward
+    // @Description: Acceleration (vertical) controller feed forward
+    // @Range: 0 0.5
+    // @Increment: 0.001
+    // @User: Standard
+
+    // @Param: _ACCZ_FLTT
+    // @DisplayName: Acceleration (vertical) controller target frequency in Hz
+    // @Description: Acceleration (vertical) controller target frequency in Hz
+    // @Range: 1 50
+    // @Increment: 1
     // @Units: Hz
     // @User: Standard
+
+    // @Param: _ACCZ_FLTE
+    // @DisplayName: Acceleration (vertical) controller error frequency in Hz
+    // @Description: Acceleration (vertical) controller error frequency in Hz
+    // @Range: 1 100
+    // @Increment: 1
+    // @Units: Hz
+    // @User: Standard
+
+    // @Param: _ACCZ_FLTD
+    // @DisplayName: Acceleration (vertical) controller derivative frequency in Hz
+    // @Description: Acceleration (vertical) controller derivative frequency in Hz
+    // @Range: 1 100
+    // @Increment: 1
+    // @Units: Hz
+    // @User: Standard
+
+    // @Param: _ACCZ_SMAX
+    // @DisplayName: Accel (vertical) slew rate limit
+    // @Description: Sets an upper limit on the slew rate produced by the combined P and D gains. If the amplitude of the control action produced by the rate feedback exceeds this value, then the D+P gain is reduced to respect the limit. This limits the amplitude of high frequency oscillations caused by an excessive gain. The limit should be set to no more than 25% of the actuators maximum slew rate to allow for load effects. Note: The gain will not be reduced to less than 10% of the nominal value. A value of zero will disable this feature.
+    // @Range: 0 200
+    // @Increment: 0.5
+    // @User: Advanced
+
     AP_SUBGROUPINFO(_pid_accel_z, "_ACCZ_", 4, AC_PosControl, AC_PID),
 
     // @Param: _POSXY_P
-    // @DisplayName: Position (horizonal) controller P gain
+    // @DisplayName: Position (horizontal) controller P gain
     // @Description: Position controller P gain.  Converts the distance (in the latitude direction) to the target location into a desired speed which is then passed to the loiter latitude rate controller
     // @Range: 0.500 2.000
     // @User: Standard
@@ -167,7 +199,7 @@ const AP_Param::GroupInfo AC_PosControl::var_info[] = {
 
     // @Param: _VELXY_D_FILT
     // @DisplayName: Velocity (horizontal) input filter
-    // @Description: Velocity (horizontal) input filter.  This filter (in hz) is applied to the input for P and I terms
+    // @Description: Velocity (horizontal) input filter.  This filter (in hz) is applied to the input for D term
     // @Range: 0 100
     // @Units: Hz
     // @User: Advanced
@@ -189,7 +221,7 @@ const AP_Param::GroupInfo AC_PosControl::var_info[] = {
 // Note that the Vector/Matrix constructors already implicitly zero
 // their values.
 //
-AC_PosControl::AC_PosControl(const AP_AHRS_View& ahrs, const AP_InertialNav& inav,
+AC_PosControl::AC_PosControl(AP_AHRS_View& ahrs, const AP_InertialNav& inav,
                              const AP_Motors& motors, AC_AttitudeControl& attitude_control) :
     _ahrs(ahrs),
     _inav(inav),
@@ -252,7 +284,13 @@ void AC_PosControl::set_max_speed_z(float speed_down, float speed_up)
     // ensure speed_down is always negative
     speed_down = -fabsf(speed_down);
 
-    if ((fabsf(_speed_down_cms - speed_down) > 1.0f) || (fabsf(_speed_up_cms - speed_up) > 1.0f)) {
+    // exit immediately if no change in speed up or down
+    if (is_equal(_speed_down_cms, speed_down) && is_equal(_speed_up_cms, speed_up)) {
+        return;
+    }
+
+    // sanity check speeds and update
+    if (is_positive(speed_up) && is_negative(speed_down)) {
         _speed_down_cms = speed_down;
         _speed_up_cms = speed_up;
         _flags.recalc_leash_z = true;
@@ -263,11 +301,14 @@ void AC_PosControl::set_max_speed_z(float speed_down, float speed_up)
 /// set_max_accel_z - set the maximum vertical acceleration in cm/s/s
 void AC_PosControl::set_max_accel_z(float accel_cmss)
 {
-    if (fabsf(_accel_z_cms - accel_cmss) > 1.0f) {
-        _accel_z_cms = accel_cmss;
-        _flags.recalc_leash_z = true;
-        calc_leash_length_z();
+    // exit immediately if no change in acceleration
+    if (is_equal(_accel_z_cms, accel_cmss)) {
+        return;
     }
+
+    _accel_z_cms = accel_cmss;
+    _flags.recalc_leash_z = true;
+    calc_leash_length_z();
 }
 
 /// set_alt_target_with_slew - adjusts target towards a final altitude target
@@ -527,7 +568,7 @@ void AC_PosControl::run_z_controller()
     }
 
     // calculate _vel_target.z using from _pos_error.z using sqrt controller
-    _vel_target.z = AC_AttitudeControl::sqrt_controller(_pos_error.z, _p_pos_z.kP(), _accel_z_cms, _dt);
+    _vel_target.z = sqrt_controller(_pos_error.z, _p_pos_z.kP(), _accel_z_cms, _dt);
 
     // check speed limits
     // To-Do: check these speed limits here or in the pos->rate controller
@@ -588,11 +629,10 @@ void AC_PosControl::run_z_controller()
     _accel_target.z += _accel_desired.z;
 
 
-    // the following section calculates a desired throttle needed to achieve the acceleration target
-    float z_accel_meas;         // actual acceleration
 
     // Calculate Earth Frame Z acceleration
-    z_accel_meas = -(_ahrs.get_accel_ef_blended().z + GRAVITY_MSS) * 100.0f;
+    const float z_accel_meas = get_z_accel_cmss();
+
 
     // ensure imax is always large enough to overpower hover throttle
     if (_motors.get_throttle_hover() * 1000.0f > _pid_accel_z.imax()) {
@@ -617,6 +657,12 @@ void AC_PosControl::run_z_controller()
 
     // send throttle to attitude controller with angle boost
     _attitude_control.set_throttle_out(thr_out, true, POSCONTROL_THROTTLE_CUTOFF_FREQ);
+
+    // _speed_down_cms is checked to be non-zero when set
+    float error_ratio = _vel_error.z/_speed_down_cms;
+
+    _vel_z_control_ratio += _dt*0.1f*(0.5-error_ratio);
+    _vel_z_control_ratio = constrain_float(_vel_z_control_ratio, 0.0f, 2.0f);
 }
 
 ///
@@ -626,21 +672,26 @@ void AC_PosControl::run_z_controller()
 /// set_max_accel_xy - set the maximum horizontal acceleration in cm/s/s
 void AC_PosControl::set_max_accel_xy(float accel_cmss)
 {
-    if (fabsf(_accel_cms - accel_cmss) > 1.0f) {
-        _accel_cms = accel_cmss;
-        _flags.recalc_leash_xy = true;
-        calc_leash_length_xy();
+    // return immediately if no change
+    if (is_equal(_accel_cms, accel_cmss)) {
+        return;
     }
+    _accel_cms = accel_cmss;
+    _flags.recalc_leash_xy = true;
+    calc_leash_length_xy();
 }
 
 /// set_max_speed_xy - set the maximum horizontal speed maximum in cm/s
 void AC_PosControl::set_max_speed_xy(float speed_cms)
 {
-    if (fabsf(_speed_cms - speed_cms) > 1.0f) {
-        _speed_cms = speed_cms;
-        _flags.recalc_leash_xy = true;
-        calc_leash_length_xy();
+    // return immediately if no change in speed
+    if (is_equal(_speed_cms, speed_cms)) {
+        return;
     }
+
+    _speed_cms = speed_cms;
+    _flags.recalc_leash_xy = true;
+    calc_leash_length_xy();
 }
 
 /// set_pos_target in cm from home
@@ -741,6 +792,16 @@ int32_t AC_PosControl::get_bearing_to_target() const
     return get_bearing_cd(_inav.get_position(), _pos_target);
 }
 
+// relax velocity controller by clearing velocity error and setting velocity target to current velocity
+void AC_PosControl::relax_velocity_controller_xy()
+{
+    const Vector3f& curr_vel = _inav.get_velocity();
+    _vel_target.x = curr_vel.x;
+    _vel_target.y = curr_vel.y;
+    _vel_error.x = 0.0f;
+    _vel_error.y = 0.0f;
+}
+
 // is_active_xy - returns true if the xy position controller has been run very recently
 bool AC_PosControl::is_active_xy() const
 {
@@ -764,9 +825,9 @@ float AC_PosControl::get_lean_angle_max_cd() const
 void AC_PosControl::init_xy_controller()
 {
     // set roll, pitch lean angle targets to current attitude
-    // todo: this should probably be based on the desired attitude not the current attitude
-    _roll_target = _ahrs.roll_sensor;
-    _pitch_target = _ahrs.pitch_sensor;
+    const Vector3f &att_target_euler_cd = _attitude_control.get_att_target_euler_cd();
+    _roll_target = att_target_euler_cd.x;
+    _pitch_target = att_target_euler_cd.y;
 
     // initialise I terms from lean angles
     _pid_vel_xy.reset_filter();
@@ -837,32 +898,13 @@ float AC_PosControl::time_since_last_xy_update() const
 // write log to dataflash
 void AC_PosControl::write_log()
 {
-    const Vector3f &pos_target = get_pos_target();
-    const Vector3f &vel_target = get_vel_target();
-    const Vector3f &accel_target = get_accel_target();
-    const Vector3f &position = _inav.get_position();
-    const Vector3f &velocity = _inav.get_velocity();
     float accel_x, accel_y;
     lean_angles_to_accel(accel_x, accel_y);
 
-    AP::logger().Write("PSC",
-                       "TimeUS,TPX,TPY,PX,PY,TVX,TVY,VX,VY,TAX,TAY,AX,AY",
-                       "smmmmnnnnoooo",
-                       "F000000000000",
-                       "Qffffffffffff",
-                       AP_HAL::micros64(),
-                       double(pos_target.x * 0.01f),
-                       double(pos_target.y * 0.01f),
-                       double(position.x * 0.01f),
-                       double(position.y * 0.01f),
-                       double(vel_target.x * 0.01f),
-                       double(vel_target.y * 0.01f),
-                       double(velocity.x * 0.01f),
-                       double(velocity.y * 0.01f),
-                       double(accel_target.x * 0.01f),
-                       double(accel_target.y * 0.01f),
-                       double(accel_x * 0.01f),
-                       double(accel_y * 0.01f));
+    AP::logger().Write_PSC(get_pos_target(), _inav.get_position(), get_vel_target(), _inav.get_velocity(), get_accel_target(), accel_x, accel_y);
+    AP::logger().Write_PSCZ(get_pos_target().z, _inav.get_position().z,
+                            get_desired_velocity().z, get_vel_target().z, _inav.get_velocity().z,
+                            _accel_desired.z, get_accel_target().z, get_z_accel_cmss(), _attitude_control.get_throttle_in());
 }
 
 /// init_vel_controller_xyz - initialise the velocity controller - should be called once before the caller attempts to use the controller
@@ -897,45 +939,13 @@ void AC_PosControl::init_vel_controller_xyz()
     init_ekf_z_reset();
 }
 
-/// update_velocity_controller_xy - run the velocity controller - should be called at 100hz or higher
-///     velocity targets should we set using set_desired_velocity_xy() method
-///     callers should use get_roll() and get_pitch() methods and sent to the attitude controller
-///     throttle targets will be sent directly to the motors
-void AC_PosControl::update_vel_controller_xy()
-{
-    // capture time since last iteration
-    const uint64_t now_us = AP_HAL::micros64();
-    float dt = (now_us - _last_update_xy_us) * 1.0e-6f;
-
-    // sanity check dt
-    if (dt >= 0.2f) {
-        dt = 0.0f;
-    }
-
-    // check for ekf xy position reset
-    check_for_ekf_xy_reset();
-
-    // check if xy leash needs to be recalculated
-    calc_leash_length_xy();
-
-    // apply desired velocity request to position target
-    // TODO: this will need to be removed and added to the calling function.
-    desired_vel_to_pos(dt);
-
-    // run position controller
-    run_xy_controller(dt);
-
-    // update xy update time
-    _last_update_xy_us = now_us;
-}
-
 /// update_velocity_controller_xyz - run the velocity controller - should be called at 100hz or higher
 ///     velocity targets should we set using set_desired_velocity_xyz() method
 ///     callers should use get_roll() and get_pitch() methods and sent to the attitude controller
 ///     throttle targets will be sent directly to the motors
 void AC_PosControl::update_vel_controller_xyz()
 {
-    update_vel_controller_xy();
+    update_xy_controller();
 
     // update altitude target
     set_alt_target_from_climb_rate_ff(_vel_desired.z, _dt, false);
@@ -1028,7 +1038,7 @@ void AC_PosControl::run_xy_controller(float dt)
             _pos_target.y = curr_pos.y + _pos_error.y;
         }
 
-        _vel_target = sqrt_controller(_pos_error, kP, _accel_cms);
+        _vel_target = sqrt_controller_3D(_pos_error, kP, _accel_cms);
     }
 
     // add velocity feed-forward
@@ -1105,12 +1115,9 @@ void AC_PosControl::run_xy_controller(float dt)
 // get_lean_angles_to_accel - convert roll, pitch lean angles to lat/lon frame accelerations in cm/s/s
 void AC_PosControl::accel_to_lean_angles(float accel_x_cmss, float accel_y_cmss, float& roll_target, float& pitch_target) const
 {
-    float accel_right, accel_forward;
-
     // rotate accelerations into body forward-right frame
-    // todo: this should probably be based on the desired heading not the current heading
-    accel_forward = accel_x_cmss * _ahrs.cos_yaw() + accel_y_cmss * _ahrs.sin_yaw();
-    accel_right = -accel_x_cmss * _ahrs.sin_yaw() + accel_y_cmss * _ahrs.cos_yaw();
+    const float accel_forward = accel_x_cmss * _ahrs.cos_yaw() + accel_y_cmss * _ahrs.sin_yaw();
+    const float accel_right = -accel_x_cmss * _ahrs.sin_yaw() + accel_y_cmss * _ahrs.cos_yaw();
 
     // update angle targets that will be passed to stabilize controller
     pitch_target = atanf(-accel_forward / (GRAVITY_MSS * 100.0f)) * (18000.0f / M_PI);
@@ -1118,13 +1125,20 @@ void AC_PosControl::accel_to_lean_angles(float accel_x_cmss, float accel_y_cmss,
     roll_target = atanf(accel_right * cos_pitch_target / (GRAVITY_MSS * 100.0f)) * (18000.0f / M_PI);
 }
 
-// get_lean_angles_to_accel - convert roll, pitch lean angles to lat/lon frame accelerations in cm/s/s
+// get_lean_angles_to_accel - convert roll, pitch lean target angles to lat/lon frame accelerations in cm/s/s
 void AC_PosControl::lean_angles_to_accel(float& accel_x_cmss, float& accel_y_cmss) const
 {
     // rotate our roll, pitch angles into lat/lon frame
-    // todo: this should probably be based on the desired attitude not the current attitude
-    accel_x_cmss = (GRAVITY_MSS * 100) * (-_ahrs.cos_yaw() * _ahrs.sin_pitch() * _ahrs.cos_roll() - _ahrs.sin_yaw() * _ahrs.sin_roll()) / MAX(_ahrs.cos_roll() * _ahrs.cos_pitch(), 0.5f);
-    accel_y_cmss = (GRAVITY_MSS * 100) * (-_ahrs.sin_yaw() * _ahrs.sin_pitch() * _ahrs.cos_roll() + _ahrs.cos_yaw() * _ahrs.sin_roll()) / MAX(_ahrs.cos_roll() * _ahrs.cos_pitch(), 0.5f);
+    const Vector3f &att_target_euler = _attitude_control.get_att_target_euler_rad();
+    const float sin_roll = sinf(att_target_euler.x);
+    const float cos_roll = cosf(att_target_euler.x);
+    const float sin_pitch = sinf(att_target_euler.y);
+    const float cos_pitch = cosf(att_target_euler.y);
+    const float sin_yaw = _ahrs.sin_yaw();
+    const float cos_yaw = _ahrs.cos_yaw();
+
+    accel_x_cmss = (GRAVITY_MSS * 100) * (-cos_yaw * sin_pitch * cos_roll - sin_yaw * sin_roll) / MAX(cos_roll * cos_pitch, 0.5f);
+    accel_y_cmss = (GRAVITY_MSS * 100) * (-sin_yaw * sin_pitch * cos_roll + cos_yaw * sin_roll) / MAX(cos_roll * cos_pitch, 0.5f);
 }
 
 /// calc_leash_length - calculates the horizontal leash length given a maximum speed, acceleration and position kP gain
@@ -1197,20 +1211,8 @@ void AC_PosControl::check_for_ekf_z_reset()
     }
 }
 
-/// limit vector to a given length, returns true if vector was limited
-bool AC_PosControl::limit_vector_length(float& vector_x, float& vector_y, float max_length)
-{
-    float vector_length = norm(vector_x, vector_y);
-    if ((vector_length > max_length) && is_positive(vector_length)) {
-        vector_x *= (max_length / vector_length);
-        vector_y *= (max_length / vector_length);
-        return true;
-    }
-    return false;
-}
-
 /// Proportional controller with piecewise sqrt sections to constrain second derivative
-Vector3f AC_PosControl::sqrt_controller(const Vector3f& error, float p, float second_ord_lim)
+Vector3f AC_PosControl::sqrt_controller_3D(const Vector3f& error, float p, float second_ord_lim)
 {
     if (second_ord_lim < 0.0f || is_zero(second_ord_lim) || is_zero(p)) {
         return Vector3f(error.x * p, error.y * p, error.z);
