@@ -41,7 +41,7 @@
 #pragma once
 
 #include "AP_HAL_ChibiOS.h"
-# if defined(STM32H7XX)
+# if defined(STM32H7XX) || defined(STM32G4)
 #include "CANFDIface.h"
 # else
 #if HAL_NUM_CAN_IFACES
@@ -153,6 +153,7 @@ class ChibiOS::CANIface : public AP_HAL::CANIface
         uint32_t rx_errors;
         uint32_t num_busoff_err;
         uint32_t num_events;
+        uint32_t esr;
     } stats;
 #endif
 
@@ -161,6 +162,8 @@ public:
      *   Common CAN methods                   *
      * ****************************************/
     CANIface(uint8_t index);
+    CANIface();
+    static uint8_t next_interface;
 
     // Initialise CAN Peripheral
     bool init(const uint32_t bitrate, const OperatingMode mode) override;
@@ -233,13 +236,7 @@ public:
     void pollErrorFlagsFromISR(void);
 
     // CAN Peripheral register structure
-    static constexpr bxcan::CanType* const Can[HAL_NUM_CAN_IFACES] = {
-        reinterpret_cast<bxcan::CanType*>(uintptr_t(0x40006400U))
-#if HAL_NUM_CAN_IFACES > 1
-        ,
-        reinterpret_cast<bxcan::CanType*>(uintptr_t(0x40006800U))
-#endif
-    };
+    static constexpr bxcan::CanType* const Can[HAL_NUM_CAN_IFACES] = { HAL_CAN_BASE_LIST };
 };
 #endif //HAL_NUM_CAN_IFACES
-#endif //# if defined(STM32H7XX)
+#endif //# if defined(STM32H7XX) || defined(STM32G4)

@@ -97,7 +97,7 @@ void Copter::read_rangefinder(void)
 #if MODE_CIRCLE_ENABLED
                 circle_nav->set_rangefinder_alt(rangefinder_state.enabled && wp_nav->rangefinder_used(), rangefinder_state.alt_healthy, rangefinder_state.alt_cm_filt.get());
 #endif
-#if PROXIMITY_ENABLED == ENABLED
+#if HAL_PROXIMITY_ENABLED
                 g2.proximity.set_rangefinder_alt(rangefinder_state.enabled, rangefinder_state.alt_healthy, rangefinder_state.alt_cm_filt.get());
 #endif
             }
@@ -162,15 +162,6 @@ void Copter::rpm_update(void)
 #endif
 }
 
-// initialise optical flow sensor
-void Copter::init_optflow()
-{
-#if OPTFLOW == ENABLED
-    // initialise optical flow sensor
-    optflow.init(MASK_LOG_OPTFLOW);
-#endif      // OPTFLOW == ENABLED
-}
-
 void Copter::compass_cal_update()
 {
     compass.cal_update();
@@ -224,7 +215,7 @@ void Copter::accel_cal_update()
 // initialise proximity sensor
 void Copter::init_proximity(void)
 {
-#if PROXIMITY_ENABLED == ENABLED
+#if HAL_PROXIMITY_ENABLED
     g2.proximity.init();
 #endif
 }

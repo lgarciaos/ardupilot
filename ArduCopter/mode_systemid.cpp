@@ -69,7 +69,7 @@ ModeSystemId::ModeSystemId(void) : Mode()
     AP_Param::setup_object_defaults(this, var_info);
 }
 
-#define SYSTEM_ID_DELAY     1.0f      // speed below which it is always safe to switch to loiter
+#define SYSTEM_ID_DELAY     1.0f      // time in seconds waited after system id mode change for frequency sweep injection
 
 // systemId_init - initialise systemId controller
 bool ModeSystemId::init(bool ignore_checks)
@@ -131,7 +131,7 @@ void ModeSystemId::run()
     switch (motors->get_spool_state()) {
     case AP_Motors::SpoolState::SHUT_DOWN:
         // Motors Stopped
-        attitude_control->set_yaw_target_to_current_heading();
+        attitude_control->reset_yaw_target_and_rate();
         attitude_control->reset_rate_controller_I_terms();
         break;
 
@@ -140,7 +140,7 @@ void ModeSystemId::run()
         // Tradheli initializes targets when going from disarmed to armed state. 
         // init_targets_on_arming is always set true for multicopter.
         if (motors->init_targets_on_arming()) {
-            attitude_control->set_yaw_target_to_current_heading();
+            attitude_control->reset_yaw_target_and_rate();
             attitude_control->reset_rate_controller_I_terms_smoothly();
         }
         break;

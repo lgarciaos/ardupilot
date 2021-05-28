@@ -51,7 +51,11 @@
 #ifndef HAL_COMPASS_MAX_SENSORS
 #define HAL_COMPASS_MAX_SENSORS 3
 #endif
+#if HAL_COMPASS_MAX_SENSORS > 1
 #define COMPASS_MAX_UNREG_DEV 5
+#else
+#define COMPASS_MAX_UNREG_DEV 0
+#endif
 #else
 #ifndef HAL_COMPASS_MAX_SENSORS
 #define HAL_COMPASS_MAX_SENSORS 1
@@ -211,8 +215,6 @@ public:
     /// return true if the compass should be used for yaw calculations
     bool use_for_yaw(uint8_t i) const;
     bool use_for_yaw(void) const;
-
-    void set_use_for_yaw(uint8_t i, bool use);
 
     /// Sets the local magnetic field declination.
     ///
@@ -433,6 +435,7 @@ private:
 		DRIVER_RM3100   =16,
         DRIVER_MSP      =17,
         DRIVER_SERIAL   =18,
+        DRIVER_MMC5XX3  =19,
     };
 
     bool _driver_enabled(enum DriverType driver_type);

@@ -27,6 +27,7 @@ import ardusub
 import antennatracker
 import quadplane
 import balancebot
+import sailboat
 
 import examples
 from pysim import util
@@ -66,13 +67,15 @@ def get_default_params(atype, binary):
         frame = "+"
 
     home = "%f,%f,%u,%u" % (HOME.lat, HOME.lng, HOME.alt, HOME.heading)
+    mavproxy_master = 'tcp:127.0.0.1:5760'
     sitl = util.start_SITL(binary,
                            wipe=True,
                            model=frame,
                            home=home,
                            speedup=10,
                            unhide_parameters=True)
-    mavproxy = util.start_MAVProxy_SITL(atype)
+    mavproxy = util.start_MAVProxy_SITL(atype,
+                                        master=mavproxy_master)
     print("Dumping defaults")
     idx = mavproxy.expect([r'Saved [0-9]+ parameters to (\S+)'])
     if idx == 0:
@@ -80,7 +83,8 @@ def get_default_params(atype, binary):
         util.pexpect_close(mavproxy)
         util.pexpect_close(sitl)
         sitl = util.start_SITL(binary, model=frame, home=home, speedup=10)
-        mavproxy = util.start_MAVProxy_SITL(atype)
+        mavproxy = util.start_MAVProxy_SITL(atype,
+                                            master=mavproxy_master)
         mavproxy.expect(r'Saved [0-9]+ parameters to (\S+)')
     parmfile = mavproxy.match.group(1)
     dest = buildlogs_path('%s-defaults.parm' % atype)
@@ -121,12 +125,12 @@ def build_binaries():
     return True
 
 
-def build_examples():
+def build_examples(**kwargs):
     """Build examples."""
     for target in 'fmuv2', 'Pixhawk1', 'navio', 'linux':
         print("Running build.examples for %s" % target)
         try:
-            util.build_examples(target)
+            util.build_examples(target, **kwargs)
         except Exception as e:
             print("Failed build_examples on board=%s" % target)
             print(str(e))
@@ -135,12 +139,13 @@ def build_examples():
     return True
 
 
-def build_unit_tests():
+def build_unit_tests(**kwargs):
     """Build tests."""
     for target in ['linux']:
         print("Running build.unit_tests for %s" % target)
+        print(*kwargs)
         try:
-            util.build_tests(target)
+            util.build_tests(target, **kwargs)
         except Exception as e:
             print("Failed build.unit_tests on board=%s" % target)
             print(str(e))
@@ -295,6 +300,7 @@ __bin_names = {
     "QuadPlane": "arduplane",
     "Sub": "ardusub",
     "BalanceBot": "ardurover",
+    "Sailboat": "ardurover",
     "SITLPeriphGPS": "sitl_periph_gp.AP_Periph",
     "CAN": "arducopter",
 }
@@ -361,6 +367,7 @@ tester_class_map = {
     "test.QuadPlane": quadplane.AutoTestQuadPlane,
     "test.Rover": rover.AutoTestRover,
     "test.BalanceBot": balancebot.AutoTestBalanceBot,
+    "test.Sailboat": sailboat.AutoTestSailboat,
     "test.Helicopter": arducopter.AutoTestHeli,
     "test.Sub": ardusub.AutoTestSub,
     "test.Tracker": antennatracker.AutoTestTracker,
@@ -437,7 +444,7 @@ def run_step(step):
         vehicle_binary = 'sitl_periph_gps.bin/AP_Periph'
 
     if step == 'build.Replay':
-        return util.build_SITL('tools/Replay', clean=False, configure=False)
+        return util.build_replay(board='SITL')
 
     if vehicle_binary is not None:
         if len(vehicle_binary.split(".")) == 1:
@@ -510,7 +517,7 @@ def run_step(step):
         return build_binaries()
 
     if step == 'build.examples':
-        return build_examples()
+        return build_examples(**build_opts)
 
     if step == 'run.examples':
         return examples.run_examples(debug=opts.debug, valgrind=False, gdb=False)
@@ -522,7 +529,7 @@ def run_step(step):
         return convert_gpx()
 
     if step == 'build.unit_tests':
-        return build_unit_tests()
+        return build_unit_tests(**build_opts)
 
     if step == 'run.unit_tests':
         return run_unit_tests()
@@ -665,6 +672,12 @@ def run_tests(steps):
     """Run a list of steps."""
     global results
 
+    corefiles = glob.glob("core*")
+    if corefiles:
+        print('Removing corefiles: %s' % str(corefiles))
+        for f in corefiles:
+            os.unlink(f)
+
     passed = True
     failed = []
     failed_testinstances = dict()
@@ -701,6 +714,15 @@ def run_tests(steps):
             results.add(step,
                         '<span class="failed-text">FAILED</span>',
                         time.time() - t1)
+
+        global tester
+        if tester is not None and tester.rc_thread is not None:
+            if passed:
+                print("BAD: RC Thread still alive after run_step")
+            tester.rc_thread_should_quit = True
+            tester.rc_thread.join()
+            tester.rc_thread = None
+
     if not passed:
         keys = failed_testinstances.keys()
         if len(keys):
@@ -714,14 +736,6 @@ def run_tests(steps):
 
         print("FAILED %u tests: %s" % (len(failed), failed))
 
-    global tester
-    if tester is not None and tester.rc_thread is not None:
-        if passed:
-            print("BAD: RC Thread still alive after tests passed")
-        tester.rc_thread_should_quit = True
-        tester.rc_thread.join()
-        tester.rc_thread = None
-
     util.pexpect_close_all()
 
     write_fullresults()
@@ -729,7 +743,7 @@ def run_tests(steps):
     return passed
 
 
-vehicle_list = ['Sub', 'Copter', 'Plane', 'Tracker', 'Rover', 'QuadPlane', 'BalanceBot', 'Helicopter']
+vehicle_list = ['Sub', 'Copter', 'Plane', 'Tracker', 'Rover', 'QuadPlane', 'BalanceBot', 'Helicopter', 'Sailboat']
 
 
 def list_subtests():
@@ -794,6 +808,10 @@ if __name__ == "__main__":
         "e.g. autotest.py --debug --gdb build.Tracker test.Tracker # run Tracker under gdb\n"
         "e.g. autotest.py --debug --gdb build.Sub test.Sub.DiveManual # do specific Sub test\n"
     )
+    parser.add_option("--autotest-server",
+                      action='store_true',
+                      default=False,
+                      help='Run in autotest-server mode; dangerous!')
     parser.add_option("--skip",
                       type='string',
                       default='',
@@ -950,6 +968,7 @@ if __name__ == "__main__":
         'defaults.Rover',
         'test.Rover',
         'test.BalanceBot',
+        'test.Sailboat',
 
         'build.Copter',
         'defaults.Copter',
@@ -1099,6 +1118,12 @@ if __name__ == "__main__":
                 sys.exit(1)
             matched.extend(matches)
         steps = matched
+    elif opts.autotest_server:
+        # we will be changing this script to give a help message if
+        # --autotest-server isn't given, instead of assuming we want
+        # to do everything that happens on autotest.ardupilot.org,
+        # which includes some significant state-changing actions.
+        print("AutoTest-Server Mode")
 
     # skip steps according to --skip option:
     steps_to_run = [s for s in steps if should_run_step(s)]
@@ -1107,6 +1132,9 @@ if __name__ == "__main__":
 
     try:
         if not run_tests(steps_to_run):
+            if os.environ.get("COVERAGE", False):
+                # Don't report failure on coverage test
+                sys.exit(0)
             sys.exit(1)
     except KeyboardInterrupt:
         print("KeyboardInterrupt caught; closing pexpect connections")

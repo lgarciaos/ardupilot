@@ -1029,7 +1029,6 @@ private:
     bool lastInhibitMagStates;      // previous inhibitMagStates
     bool needMagBodyVarReset;       // we need to reset mag body variances at next CovariancePrediction
     bool needEarthBodyVarReset;     // we need to reset mag earth variances at next CovariancePrediction
-    bool inhibitDelVelBiasStates;   // true when IMU delta velocity bias states are inactive
     bool inhibitDelAngBiasStates;   // true when IMU delta angle bias states are inactive
     bool gpsNotAvailable;           // bool true when valid GPS data is not available
     struct Location EKF_origin;     // LLH origin of the NED axis system
@@ -1325,6 +1324,11 @@ private:
     bool onGroundNotMoving;             // true when on the ground and not moving
     uint32_t lastMoveCheckLogTime_ms;   // last time the movement check data was logged (msec)
 
+	// variables used to inhibit accel bias learning
+    bool inhibitDelVelBiasStates;       // true when all IMU delta velocity bias states are de-activated
+    bool dvelBiasAxisInhibit[3] {};		// true when IMU delta velocity bias states for a specific axis is de-activated
+	Vector3f dvelBiasAxisVarPrev;		// saved delta velocity XYZ bias variances (m/sec)**2
+
 #if EK3_FEATURE_EXTERNAL_NAV
     // external navigation fusion
     EKF_obs_buffer_t<ext_nav_elements> storedExtNav; // external navigation data buffer
@@ -1431,7 +1435,8 @@ private:
     */
     bool learnMagBiasFromGPS(void);
 
-    uint32_t last_gps_yaw_fusion_ms;
+    uint32_t last_gps_yaw_ms; // last time the EKF attempted to use the GPS yaw
+    uint32_t last_gps_yaw_fuse_ms; // last time the EKF successfully fused the GPS yaw
     bool gps_yaw_mag_fallback_ok;
     bool gps_yaw_mag_fallback_active;
     uint8_t gps_yaw_fallback_good_counter;
