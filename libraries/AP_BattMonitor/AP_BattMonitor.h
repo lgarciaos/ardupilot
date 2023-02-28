@@ -58,6 +58,7 @@ class AP_BattMonitor_INA2XX;
 class AP_BattMonitor_LTC2946;
 class AP_BattMonitor_Torqeedo;
 class AP_BattMonitor_FuelLevel_Analog;
+class AP_BattMonitor_ACS37800;
 
 class AP_BattMonitor
 {
@@ -78,6 +79,7 @@ class AP_BattMonitor
 
     friend class AP_BattMonitor_Torqeedo;
     friend class AP_BattMonitor_FuelLevel_Analog;
+    friend class AP_BattMonitor_ACS37800;
 
 public:
 
@@ -113,6 +115,7 @@ public:
         LTC2946                    = 22,
         Torqeedo                   = 23,
         FuelLevel_Analog           = 24,
+        ACS37800_I2C               = 25,
     };
 
     FUNCTOR_TYPEDEF(battery_failsafe_handler_fn_t, void, const char *, const int8_t);
