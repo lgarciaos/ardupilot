@@ -63,7 +63,7 @@ bool ModeLoiter::isHeadingLinedUp_cd(const int32_t bearing_cd)
     // Tolerance is initially 10 degrees and grows at 10 degrees for each loiter circle completed.
 
     // get current heading.
-    const int32_t heading_cd = (wrap_360(degrees(plane.ahrs.groundspeed_vector().angle())))*100;
+    const int32_t heading_cd = (wrap_360(degrees(ahrs.groundspeed_vector().angle())))*100;
 
     const int32_t heading_err_cd = wrap_180_cd(bearing_cd - heading_cd);
 
@@ -110,3 +110,10 @@ void ModeLoiter::navigate()
     plane.update_loiter(0);
 }
 
+void ModeLoiter::update_target_altitude()
+{
+    if (plane.stick_mixing_enabled() && (plane.g2.flight_options & FlightOptions::ENABLE_LOITER_ALT_CONTROL)) {
+        return;
+    }
+    Mode::update_target_altitude();
+}

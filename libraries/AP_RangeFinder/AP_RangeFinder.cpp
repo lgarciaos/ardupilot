@@ -51,9 +51,11 @@
 #include "AP_RangeFinder_MSP.h"
 #include "AP_RangeFinder_USD1_CAN.h"
 #include "AP_RangeFinder_Benewake_CAN.h"
+#include "AP_RangeFinder_Lua.h"
 
 #include <AP_BoardConfig/AP_BoardConfig.h>
 #include <AP_Logger/AP_Logger.h>
+#include <AP_SerialManager/AP_SerialManager.h>
 #include <AP_Vehicle/AP_Vehicle_Type.h>
 
 extern const AP_HAL::HAL &hal;
@@ -158,7 +160,7 @@ const AP_Param::GroupInfo RangeFinder::var_info[] = {
     // @Path: AP_RangeFinder_Wasp.cpp,AP_RangeFinder_Benewake_CAN.cpp
     AP_SUBGROUPVARPTR(drivers[9], "A_",  44, RangeFinder, backend_var_info[9]),
 #endif
-    
+
     AP_GROUPEND
 };
 
@@ -523,8 +525,15 @@ void RangeFinder::detect_instance(uint8_t instance, uint8_t& serial_instance)
     case Type::Benewake_CAN:
 #if AP_RANGEFINDER_BENEWAKE_CAN_ENABLED
         _add_backend(new AP_RangeFinder_Benewake_CAN(state[instance], params[instance]), instance);
-        break;
 #endif
+        break;
+
+    case Type::Lua_Scripting:
+#if AP_SCRIPTING_ENABLED
+        _add_backend(new AP_RangeFinder_Lua(state[instance], params[instance]), instance);
+#endif
+        break;
+
     case Type::NONE:
         break;
     }
@@ -770,6 +779,11 @@ bool RangeFinder::prearm_healthy(char *failure_msg, const uint8_t failure_msg_le
                 hal.util->snprintf(failure_msg, failure_msg_len, "RNGFND%u_PIN not set", unsigned(i + 1));
                 return false;
             }
+            if (drivers[i]->allocated_type() == Type::ANALOG) {
+                // Analog backend does not use GPIO pin
+                break;
+            }
+
             // ensure that the pin we're configured to use is available
             if (!hal.gpio->valid_pin(params[i].pin)) {
                 uint8_t servo_ch;

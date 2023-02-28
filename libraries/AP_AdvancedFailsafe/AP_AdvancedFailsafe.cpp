@@ -19,14 +19,18 @@
     This is an advanced failsafe module originally modelled on the
     failsafe rules of the Outback Challenge
 */
-#include <AP_HAL/AP_HAL.h>
 #include "AP_AdvancedFailsafe.h"
+
+#if AP_ADVANCEDFAILSAFE_ENABLED
+
+#include <AP_HAL/AP_HAL.h>
 #include <RC_Channel/RC_Channel.h>
 #include <SRV_Channel/SRV_Channel.h>
 #include <GCS_MAVLink/GCS.h>
 #include <AP_GPS/AP_GPS.h>
 #include <AP_Baro/AP_Baro.h>
 #include <AP_Mission/AP_Mission.h>
+#include <AC_Fence/AC_Fence.h>
 
 AP_AdvancedFailsafe *AP_AdvancedFailsafe::_singleton;
 
@@ -471,3 +475,5 @@ AP_AdvancedFailsafe *advancedfailsafe()
 }
 
 };
+
+#endif  // AP_ADVANCEDFAILSAFE_ENABLED

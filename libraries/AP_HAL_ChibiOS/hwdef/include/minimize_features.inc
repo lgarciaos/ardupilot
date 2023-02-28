@@ -20,3 +20,32 @@ define HAL_SPRAYER_ENABLED 0
 
 # RunCam control isn't available on smaller boards
 define HAL_RUNCAM_ENABLED 0
+
+# disable use of onboard FFT library:
+define HAL_GYROFFT_ENABLED 0
+
+# several notify backends are rare and not supported by default on smaller boards:
+define AP_NOTIFY_NCP5623_ENABLED 0
+
+# Soaring is off by defauult on of smaller boards.
+define HAL_SOARING_ENABLED 0
+
+# HOTT telemetry is quite rare, so we don't include it on smaller boards
+define HAL_HOTT_TELEM_ENABLED 0
+
+# smaller boards lose SIRF GPS support
+define AP_GPS_SIRF_ENABLED 0
+
+# minimized boards don't get configuration via SmartAudio by default:
+define AP_SMARTAUDIO_ENABLED 0
+
+# minimized boards don't get configuration via Tramp by default:
+define AP_TRAMP_ENABLED 0
+
+# various structures increase the flash size when using >16 servos:
+define NUM_SERVO_CHANNELS 16
+
+# remove various OSD features by default:
+define HAL_PLUSCODE_ENABLE 0
+define HAL_OSD_SIDEBAR_ENABLE 0
+define OSD_PARAM_ENABLED 0
