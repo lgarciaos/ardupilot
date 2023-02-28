@@ -1,4 +1,5 @@
 #include "AP_BattMonitor.h"
+#include "AP_BattMonitor_ACS37800.h"
 #include "AP_BattMonitor_Analog.h"
 #include "AP_BattMonitor_SMBus.h"
 #include "AP_BattMonitor_SMBus_Solo.h"
@@ -265,6 +266,9 @@ AP_BattMonitor::init()
             case Type::ANALOG_VOLTAGE_ONLY:
             case Type::ANALOG_VOLTAGE_AND_CURRENT:
                 drivers[instance] = new AP_BattMonitor_Analog(*this, state[instance], _params[instance]);
+                break;
+            case Type::ACS37800_I2C:
+                drivers[instance] = new AP_BattMonitor_ACS37800(*this, state[instance], _params[instance]);
                 break;
 #if AP_BATTMON_SMBUS_SOLO_ENABLED
             case Type::SOLO:

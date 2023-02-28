@@ -32,6 +32,7 @@
 // declare backend class
 class AP_BattMonitor_Backend;
 class AP_BattMonitor_Analog;
+class AP_BattMonitor_ACS37800;
 class AP_BattMonitor_SMBus;
 class AP_BattMonitor_SMBus_Solo;
 class AP_BattMonitor_SMBus_Generic;
@@ -45,7 +46,6 @@ class AP_BattMonitor_LTC2946;
 class AP_BattMonitor_Torqeedo;
 class AP_BattMonitor_FuelLevel_Analog;
 class AP_BattMonitor_EFI;
-
 
 class AP_BattMonitor
 {
@@ -68,6 +68,7 @@ class AP_BattMonitor
 
     friend class AP_BattMonitor_Torqeedo;
     friend class AP_BattMonitor_FuelLevel_Analog;
+    friend class AP_BattMonitor_ACS37800;
     friend class AP_BattMonitor_Synthetic_Current;
 
 public:
@@ -100,13 +101,14 @@ public:
         GENERATOR_FUEL                 = 18,
         Rotoye                         = 19,
         // 20 was MPPT_PacketDigital
-        INA2XX                         = 21,
-        LTC2946                        = 22,
-        Torqeedo                       = 23,
-        FuelLevel_Analog               = 24,
+        INA2XX                     = 21,
+        LTC2946                    = 22,
+        Torqeedo                   = 23,
+        FuelLevel_Analog           = 24,
         Analog_Volt_Synthetic_Current  = 25,
         INA239_SPI                     = 26,
         EFI                            = 27,
+        ACS37800_I2C                   = 28,
     };
 
     FUNCTOR_TYPEDEF(battery_failsafe_handler_fn_t, void, const char *, const int8_t);
