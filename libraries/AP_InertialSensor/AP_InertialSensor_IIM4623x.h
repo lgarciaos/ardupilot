@@ -58,13 +58,14 @@ private:
 
     bool write_word(const uint8_t reg, const uint32_t data) const;
     bool read_word(const uint8_t reg, uint32_t& data) const;
+
+    void cb_reader(uint8_t pin, bool high, uint32_t timestamp_us);
     
     AP_HAL::OwnPtr<AP_HAL::Device> dev;
 
     enum class OpMode : uint8_t {
         Basic      =1,
-        AG32       =2,
-        Delta32    =3
+        Delta    =2
     } opmode;
 
     uint8_t accel_instance;
