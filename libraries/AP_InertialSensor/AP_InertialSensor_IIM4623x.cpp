@@ -19,9 +19,9 @@
 #include <AP_HAL/utility/sparse-endian.h>
 #include <GCS_MAVLink/GCS.h>
 
-#include <AP_HAL/Util.h>
-#include <AP_Logger/AP_Logger.h>
-#include <stdio.h>
+// #include <AP_HAL/Util.h>
+// #include <AP_Logger/AP_Logger.h>
+// #include <stdio.h>
 
 #include "AP_InertialSensor_IIM4623x.h"
 
@@ -196,16 +196,6 @@ void AP_InertialSensor_IIM4623x::read_sensor()
     hal.scheduler->delay(1);
     // calc_checksum(&data[3],sizeof(data)-7);
 
-    /*
-      check if we have lost a sample
-     */
-    // uint16_t counter = be16toh(data.counter);
-    // if (done_first_read && uint16_t(last_counter+1) != counter) {
-    //     DEBUG_TOGGLE_PIN(3);
-    // }
-    // done_first_read = true;
-    // last_counter = counter;
-
     Vector3f accel{float((8*be32toh(data.ax)*GRAVITY_MSS)/pow(2,31)),
                   -float((8*be32toh(data.ay)*GRAVITY_MSS)/pow(2,31)),
                   -float((8*be32toh(data.az)*GRAVITY_MSS)/pow(2,31))};
@@ -366,15 +356,15 @@ bool AP_InertialSensor_IIM4623x::update()
     return true;
 }
 
-bool AP_InertialSensor_IIM4623x::write_register(uint8_t reg, uint8_t val, bool checked)
-{
-    uint8_t buf[2] = { reg, val };
-    if (checked) {
-        set_checked_register(reg, val);
-    }
-    bool result = transfer(buf, sizeof(buf), nullptr, 0);
-    if (AP_HAL::Device _register_rw_callback && result) {
-        _register_rw_callback(reg, &val, 1, true);
-    }
-    return result;
-}
+// bool AP_InertialSensor_IIM4623x::write_register(uint8_t reg, uint8_t val, bool checked)
+// {
+//     uint8_t buf[2] = { reg, val };
+//     if (checked) {
+//         set_checked_register(reg, val);
+//     }
+//     bool result = transfer(buf, sizeof(buf), nullptr, 0);
+//     if (AP_HAL::Device _register_rw_callback && result) {
+//         _register_rw_callback(reg, &val, 1, true);
+//     }
+//     return result;
+// }
