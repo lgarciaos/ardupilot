@@ -42,6 +42,7 @@ private:
       initialise driver
      */
     bool init();
+    void transfer_packet(uint8_t out_packet[20], int rec_pkt_len);
     // void read_sensor16(void);
     // void read_sensor32(void);
     // void read_sensor32_delta(void);
