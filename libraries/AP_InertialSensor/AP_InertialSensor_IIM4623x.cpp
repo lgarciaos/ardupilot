@@ -13,6 +13,13 @@
  * with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+
+/*
+* The atmel development kit, reference driver can be downloaded from the following link
+* https://invensense.tdk.com/developers/download/iim-4623x-evaluation-kit-3-6/
+* additional features can be implemented similar to the atmel driver
+*/
+
 #include <utility>
 #include <AP_HAL/AP_HAL.h>
 #include <AP_Math/AP_Math.h>
@@ -63,8 +70,14 @@
 #define SIZE_CMD_SET_UTC_TIME		15
 #define SIZE_CMD_READ_REGS			12
 #define SIZE_CMD_WRITE_REGS_BASE	12
+/*
+Note:
 
-#define SIZE_RESP_ACK				10
+Exact number of bytes should be read from the response buffer,
+otherwise the DRDY does not work( The DMA raises exception inside the IIM module)
+*/
+
+#define SIZE_RESP_ACK				10 
 #define SIZE_RESP_GET_SERIAL_NUM	26
 #define SIZE_RESP_GET_VERSION		20
 #define SIZE_RESP_IMU_SELF_TEST		16
@@ -306,6 +319,71 @@ struct IIM4623x_State {
 	float_uint_t d_ang_z;	
 } state;
 
+typedef struct IIM4623x_reg{
+	uint8_t first_addr;
+	uint8_t length;
+	uint8_t page_id;
+} reg;
+
+reg WHO_AM_I			= {0x00, 1 , 0};
+reg SERIAL_NUM 			= {0x01, 16, 0};
+reg FIRMWARE_REV		= {0x11, 2 , 0};
+reg BOOTLOADER_REV		= {0x13, 2 , 0};
+reg FLASH_ENDURANCE		= {0x15, 4 , 0};
+reg OUT_DATA_FORM		= {0x19, 1 , 0};
+reg SAMPLE_RATE_DIV		= {0x1A, 2 , 0};
+reg SELECT_OUT_DATA		= {0x1C, 1 , 0};
+reg UART_IF_CONFIG		= {0x1D, 1 , 0};
+reg SYNC_CONFIG			= {0x1E, 1 , 0};
+reg USER_SCRATCH1		= {0x1F, 8 , 0};
+reg USER_SCRATCH2		= {0x27, 8 , 0};
+reg SAVE_ALL_CONFIG		= {0x2F, 1 , 0};
+reg BW_CONFIG			= {0x30, 1 , 0};
+reg ACCEL_CONFIG0       = {0x33, 1 , 0};
+reg GYRO_CONFIG0        = {0x34, 1 , 0};
+reg EXT_CALIB_CONFIG    = {0x3F, 1 , 0};
+reg EXT_ACCEL_X_BIAS    = {0x40, 4 , 0};
+reg EXT_ACCEL_Y_BIAS    = {0x44, 4 , 0};
+reg EXT_ACCEL_Z_BIAS    = {0x48, 4 , 0};
+reg EXT_GYRO_X_BIAS     = {0x4C, 4 , 0};
+reg EXT_GYRO_Y_BIAS     = {0x50, 4 , 0};
+reg EXT_GYRO_Z_BIAS     = {0x54, 4 , 0};
+
+reg EXT_ACC_SENS_MAT11  = {0x58, 4 , 0};
+reg EXT_ACC_SENS_MAT12  = {0x5C, 4 , 0};
+reg EXT_ACC_SENS_MAT13  = {0x60, 4 , 0};
+reg EXT_ACC_SENS_MAT21  = {0x64, 4 , 0};
+reg EXT_ACC_SENS_MAT22  = {0x68, 4 , 0};
+reg EXT_ACC_SENS_MAT23  = {0x6C, 4 , 0};
+reg EXT_ACC_SENS_MAT31  = {0x70, 4 , 0};
+reg EXT_ACC_SENS_MAT32  = {0x74, 4 , 0};
+reg EXT_ACC_SENS_MAT33  = {0x78, 4 , 0};
+
+reg EXT_GYR_SENS_MAT11  = {0x7C, 4 , 0};
+reg EXT_GYR_SENS_MAT12  = {0x80, 4 , 0};
+reg EXT_GYR_SENS_MAT13  = {0x84, 4 , 0};
+reg EXT_GYR_SENS_MAT21  = {0x88, 4 , 0};
+reg EXT_GYR_SENS_MAT22  = {0x8C, 4 , 0};
+reg EXT_GYR_SENS_MAT23  = {0x90, 4 , 0};
+reg EXT_GYR_SENS_MAT31  = {0x94, 4 , 0};
+reg EXT_GYR_SENS_MAT32  = {0x98, 4 , 0};
+reg EXT_GYR_SENS_MAT33  = {0x9C, 4 , 0};
+
+reg DATA_READY_STATUS	= {0x00, 1 , 1};
+reg TIMESTAMP_OUT		= {0x03, 8 , 1};
+reg ACCEL_X_OUTPUT		= {0x0B, 4 , 1};
+reg ACCEL_Y_OUTPUT		= {0x0F, 4 , 1};
+reg ACCEL_Z_OUTPUT		= {0x13, 4 , 1};
+reg GYRO_X_OUTPUT		= {0x17, 4 , 1};
+reg GYRO_Y_OUTPUT		= {0x1B, 4 , 1};
+reg GYRO_Z_OUTPUT		= {0x1F, 4 , 1};
+reg TEMPERA_OUTPUT		= {0x23, 4 , 1};
+reg DELTA_VEL_X			= {0x27, 4 , 1};
+reg DELTA_VEL_Y			= {0x2B, 4 , 1};
+reg DELTA_VEL_Z			= {0x2F, 4 , 1};
+reg DELTA_ANGLE_X		= {0x33, 4 , 1};
+reg DELTA_ANGLE_Y		= {0x37, 4 , 1};
+reg DELTA_ANGLE_Z		= {0x3B, 4 , 1};
 extern const AP_HAL::HAL& hal;
 
 uint8_t cmd_get_serial_number[20]= {0x24, 0x24,
@@ -325,6 +403,13 @@ uint8_t cmd_set_output_to_fixed_point[20]= {36, 36,
                                         1, 0, 45, 13, 
                                         10, 0, 0, 0, 
                                         0, 0, 0, 0}; 
+
+// void set_read_length(uint32_t *length)
+// {
+// 	*length = SIZE_PACKET_BASE_DATA + 4*g_ul_out_num;
+// }
+uint8_t rec_packet[20];
+int count;
 
 AP_InertialSensor_IIM4623x::AP_InertialSensor_IIM4623x(AP_InertialSensor &imu,
                                                          AP_HAL::OwnPtr<AP_HAL::Device> _dev,
@@ -501,16 +586,16 @@ uint32_t read_length = 0;
 
 
 // functions for 32 bit registers
-bool AP_InertialSensor_IIM4623x::write_word(const uint8_t reg, const uint32_t data) const
-{
-    const uint8_t b[5] { reg,  uint8_t (data&0xff), uint8_t(data >> 8), uint8_t(data >> 16), uint8_t(data >> 24) };
-    return dev->transfer(b, sizeof(b), nullptr, 0);
-}
+// bool AP_InertialSensor_IIM4623x::write_word(const uint8_t reg, const uint32_t data) const
+// {
+//     const uint8_t b[5] { reg,  uint8_t (data&0xff), uint8_t(data >> 8), uint8_t(data >> 16), uint8_t(data >> 24) };
+//     return dev->transfer(b, sizeof(b), nullptr, 0);
+// }
 
-bool AP_InertialSensor_IIM4623x::read_word(const uint8_t reg, uint32_t& data) const
-{
-    return dev->read_registers(reg, (uint8_t *)&data, sizeof(data));
-}
+// bool AP_InertialSensor_IIM4623x::read_word(const uint8_t reg, uint32_t& data) const
+// {
+//     return dev->read_registers(reg, (uint8_t *)&data, sizeof(data));
+// }
 void IIM4623x_SetCMD_Common(uint8_t cmd_type)
 {
 	for (uint32_t i = 0; i < SIZE_PACKET_CMD; i++) state.cmd_packet[i] = 0x00;
@@ -546,32 +631,39 @@ void IIM4623x_SetCMD_ReadRegister()
 float_uint_t* u32_sample[13];
 uint32_t g_ul_out_num = 0;
 
-void IIM4623x_Set_ODR( uint8_t *value)
+
+void IIM4623x_SetCMD_WriteRegister(reg user_reg, uint8_t *value)
 {
 	for (uint32_t i = 0; i < SIZE_PACKET_CMD; i++) state.cmd_packet[i] = 0x00;
 	state.cmd_packet[0] = BYTE_HEADER_CMD;
 	state.cmd_packet[1] = BYTE_HEADER_CMD;
-	state.cmd_packet[2] = SIZE_CMD_WRITE_REGS_BASE + 2;
+	state.cmd_packet[2] = SIZE_CMD_WRITE_REGS_BASE + user_reg.length;
 	state.cmd_packet[3] = CMD_TYPE_WRITE_REG;
 	state.cmd_packet[4] = BYTE_RESERVED;
-	state.cmd_packet[5] = 2;//user_reg.length;
-	state.cmd_packet[6] = 0x1A;//user_reg.first_addr;
-	state.cmd_packet[7] = 0;//user_reg.page_id;
-    state.cmd_packet[8] = (uint8_t)((*value) >> 8);
-    state.cmd_packet[9] = (uint8_t)((*value) &= 0x00FF);
-	uint16_t checksum = calc_checksum(&state.cmd_packet[3], 5+2);
-	state.cmd_packet[8+2] = (uint8_t)(checksum >> 8);
-	state.cmd_packet[9+2] = (uint8_t)(checksum &= 0x00FF);	
-	state.cmd_packet[10+2] = BYTE_FOOTER_1;
-	state.cmd_packet[11+2] = BYTE_FOOTER_2;
+	state.cmd_packet[5] = user_reg.length;
+	state.cmd_packet[6] = user_reg.first_addr;
+	state.cmd_packet[7] = user_reg.page_id;
+	if (user_reg.length == 1)
+		state.cmd_packet[8] = *value;
+	else if (user_reg.length == 2) {
+		state.cmd_packet[8] = (uint8_t)((*value) >> 8);
+		state.cmd_packet[9] = (uint8_t)((*value) &= 0x00FF);
+	}
+	else if (user_reg.length == 4) {
+		state.cmd_packet[8] = *value;
+		state.cmd_packet[9] = *(value+1);
+		state.cmd_packet[10] = *(value+2);
+		state.cmd_packet[11] = *(value+3);	
+	}	
+	
+	uint16_t checksum = calc_checksum(&state.cmd_packet[3], 5+user_reg.length);
+	state.cmd_packet[8+user_reg.length] = (uint8_t)(checksum >> 8);
+	state.cmd_packet[9+user_reg.length] = (uint8_t)(checksum &= 0x00FF);	
+	state.cmd_packet[10+user_reg.length] = BYTE_FOOTER_1;
+	state.cmd_packet[11+user_reg.length] = BYTE_FOOTER_2;
 }
 
-void set_read_length(uint32_t *length)
-{
-	*length = SIZE_PACKET_BASE_DATA + 4*g_ul_out_num;
-}
-uint8_t rec_packet[20];
-int count;
+
 void AP_InertialSensor_IIM4623x::transfer_packet(uint8_t out_packet[20], int rec_pkt_len){
     WITH_SEMAPHORE(dev->get_semaphore());
     
@@ -600,19 +692,31 @@ bool AP_InertialSensor_IIM4623x::init()
     WITH_SEMAPHORE(dev->get_semaphore());
     //read whoami
     IIM4623x_SetCMD_ReadRegister();
-    transfer_packet(state.cmd_packet,17);
-    transfer_packet(cmd_set_output_to_fixed_point,10);
+    transfer_packet(state.cmd_packet,SIZE_RESP_READ_REGS_BASE+state.cmd_packet[5]);
+    
+    //set output to fixed point
+    transfer_packet(cmd_set_output_to_fixed_point,SIZE_RESP_ACK);
 
+    //set odr rate to 1kHz
     uint8_t odr_rate = 1;
-    IIM4623x_Set_ODR(&odr_rate);
-    transfer_packet(state.cmd_packet,10);
+    IIM4623x_SetCMD_WriteRegister(SAMPLE_RATE_DIV, &odr_rate);
+    transfer_packet(state.cmd_packet,SIZE_RESP_ACK);
+
+    //set accel fsr to 16g
+    state.accel_fsr &= 0x1f;
+	state.accel_fsr |= ACC_FSR_16G;
+    IIM4623x_SetCMD_WriteRegister(ACCEL_CONFIG0,  (uint8_t *)&state.accel_fsr);
+    transfer_packet(state.cmd_packet,SIZE_RESP_ACK);
+
+    //set gyro fsr to 2000dps
+    state.gyro_fsr &= 0x1f;
+	state.gyro_fsr |= GYRO_FSR_2000DPS;
+	IIM4623x_SetCMD_WriteRegister(GYRO_CONFIG0, (uint8_t *)&state.gyro_fsr);
+    transfer_packet(state.cmd_packet,SIZE_RESP_ACK);
 
     IIM4623x_SetCMD_Common(CMD_TYPE_START_STREAMING);
     dev->transfer(state.cmd_packet,8,nullptr, 0);
 
-
-
-    
 
 
     return true;
