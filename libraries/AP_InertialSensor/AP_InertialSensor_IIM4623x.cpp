@@ -25,7 +25,13 @@
 #include <AP_Math/AP_Math.h>
 #include <AP_HAL/utility/sparse-endian.h>
 #include <GCS_MAVLink/GCS.h>
+#include <stdio.h>
+#include <fstream>
+#include <chrono>
+#include <iomanip>
 
+//#include <iostream>
+//#include <cstdint>
 // #include <AP_HAL/Util.h>
 // #include <AP_Logger/AP_Logger.h>
 // #include <stdio.h>
@@ -280,6 +286,8 @@ struct iim4623x_data {
         uint16_t  checksum;
         uint16_t  footer;
     };
+//the size is 48 not 46 rounding off the bytes
+
 
 struct IIM4623x_State {
 
@@ -408,6 +416,116 @@ uint8_t cmd_set_output_to_fixed_point[20]= {36, 36,
 // {
 // 	*length = SIZE_PACKET_BASE_DATA + 4*g_ul_out_num;
 // }
+
+uint16_t calc_checksum(uint8_t *buff, uint32_t length)
+{
+	uint16_t sum = 0;
+	for (uint32_t i = 0; i < length; i++) sum += (uint16_t)buff[i];
+	return sum;
+}
+
+void IIM4623x_SetCMD_Common(uint8_t cmd_type)
+{
+	for (uint32_t i = 0; i < SIZE_PACKET_CMD; i++) state.cmd_packet[i] = 0x00;
+	state.cmd_packet[0] = BYTE_HEADER_CMD;
+	state.cmd_packet[1] = BYTE_HEADER_CMD;
+	state.cmd_packet[2] = SIZE_CMD_COMMON;
+	state.cmd_packet[3] = cmd_type;
+	uint16_t checksum = calc_checksum(&state.cmd_packet[3], 1);
+	state.cmd_packet[4] = (uint8_t)(checksum >> 8);
+	state.cmd_packet[5] = (uint8_t)(checksum &= 0x00FF);
+	state.cmd_packet[6] = BYTE_FOOTER_1;
+	state.cmd_packet[7] = BYTE_FOOTER_2;
+}
+// uint8_t cmd_packet[20];
+
+void IIM4623x_SetCMD_ReadRegister()
+{
+	for (uint32_t i = 0; i < SIZE_PACKET_CMD; i++) state.cmd_packet[i] = 0x00;
+	state.cmd_packet[0] = BYTE_HEADER_CMD;
+	state.cmd_packet[1] = BYTE_HEADER_CMD;
+	state.cmd_packet[2] = SIZE_CMD_READ_REGS;
+	state.cmd_packet[3] = CMD_TYPE_READ_REG;
+	state.cmd_packet[4] = BYTE_RESERVED;
+	state.cmd_packet[5] = 1;//user_reg.length;
+	state.cmd_packet[6] = 0x00;//user_reg.first_addr;
+	state.cmd_packet[7] = 0;//user_reg.page_id;
+	uint16_t checksum = calc_checksum(&state.cmd_packet[3], 5);
+	state.cmd_packet[8] = (uint8_t)(checksum >> 8);
+	state.cmd_packet[9] = (uint8_t)(checksum &= 0x00FF);
+	state.cmd_packet[10] = BYTE_FOOTER_1;
+	state.cmd_packet[11] = BYTE_FOOTER_2;
+}
+
+
+void IIM4623x_SetCMD_WriteRegister(reg user_reg, uint8_t *value)
+{
+	for (uint32_t i = 0; i < SIZE_PACKET_CMD; i++) state.cmd_packet[i] = 0x00;
+	state.cmd_packet[0] = BYTE_HEADER_CMD;
+	state.cmd_packet[1] = BYTE_HEADER_CMD;
+	state.cmd_packet[2] = SIZE_CMD_WRITE_REGS_BASE + user_reg.length;
+	state.cmd_packet[3] = CMD_TYPE_WRITE_REG;
+	state.cmd_packet[4] = BYTE_RESERVED;
+	state.cmd_packet[5] = user_reg.length;
+	state.cmd_packet[6] = user_reg.first_addr;
+	state.cmd_packet[7] = user_reg.page_id;
+	if (user_reg.length == 1)
+		state.cmd_packet[8] = *value;
+	else if (user_reg.length == 2) {
+		state.cmd_packet[8] = (uint8_t)((*value) >> 8);
+		state.cmd_packet[9] = (uint8_t)((*value) &= 0x00FF);
+	}
+	else if (user_reg.length == 4) {
+		state.cmd_packet[8] = *value;
+		state.cmd_packet[9] = *(value+1);
+		state.cmd_packet[10] = *(value+2);
+		state.cmd_packet[11] = *(value+3);	
+	}	
+	
+	uint16_t checksum = calc_checksum(&state.cmd_packet[3], 5+user_reg.length);
+	state.cmd_packet[8+user_reg.length] = (uint8_t)(checksum >> 8);
+	state.cmd_packet[9+user_reg.length] = (uint8_t)(checksum &= 0x00FF);	
+	state.cmd_packet[10+user_reg.length] = BYTE_FOOTER_1;
+	state.cmd_packet[11+user_reg.length] = BYTE_FOOTER_2;
+}
+
+
+float_uint_t* u32_sample[13];
+uint32_t g_ul_out_num = 0;
+
+void set_read_length(uint32_t *length)
+{
+	*length = SIZE_PACKET_BASE_DATA + 4*g_ul_out_num;
+}
+
+void IIM4623x_Start_Streaming(void)
+{
+
+    u32_sample[g_ul_out_num] = &state.acc_x;
+    g_ul_out_num++;
+    u32_sample[g_ul_out_num] = &state.acc_y;
+    g_ul_out_num++;
+    u32_sample[g_ul_out_num] = &state.acc_z;
+    g_ul_out_num++;			
+
+    u32_sample[g_ul_out_num] = &state.gyro_x;
+    g_ul_out_num++;
+    u32_sample[g_ul_out_num] = &state.gyro_y;
+    g_ul_out_num++;
+    u32_sample[g_ul_out_num] = &state.gyro_z;
+    g_ul_out_num++;			
+
+
+
+    u32_sample[g_ul_out_num] = &state.temp;
+    g_ul_out_num++;
+   
+
+
+    IIM4623x_SetCMD_Common(CMD_TYPE_START_STREAMING);
+    
+
+}
 uint8_t rec_packet[20];
 int count;
 
@@ -422,8 +540,7 @@ AP_InertialSensor_IIM4623x::AP_InertialSensor_IIM4623x(AP_InertialSensor &imu,
 {
 }
 
-AP_InertialSensor_Backend *
-AP_InertialSensor_IIM4623x::probe(AP_InertialSensor &imu,
+AP_InertialSensor_Backend *AP_InertialSensor_IIM4623x::probe(AP_InertialSensor &imu,
                                    AP_HAL::OwnPtr<AP_HAL::Device> dev,
                                    enum Rotation rotation)
 {
@@ -443,12 +560,7 @@ AP_InertialSensor_IIM4623x::probe(AP_InertialSensor &imu,
 
     return sensor;
 }
-uint16_t calc_checksum(uint8_t *buff, uint32_t length)
-{
-	uint16_t sum = 0;
-	for (uint32_t i = 0; i < length; i++) sum += (uint16_t)buff[i];
-	return sum;
-}
+
 
 void AP_InertialSensor_IIM4623x::start()
 {
@@ -508,40 +620,89 @@ bool AP_InertialSensor_IIM4623x::check_product_id(uint32_t &prod_id)
 // }
 uint8_t rbuf_data[SIZE_PACKET_FULL_DATA];
 
+inline uint32_t read_u32_data(uint8_t *p_buf)
+{
+	uint32_t value;
+	value = ((uint32_t)(*p_buf)<<24 | 
+		(uint32_t)(*(p_buf+1))<<16 | 
+		(uint32_t)(*(p_buf+2))<<8 | 
+		(uint32_t)(*(p_buf+3)));
+
+	return value;
+}
 void AP_InertialSensor_IIM4623x::read_sensor()
 {   WITH_SEMAPHORE(dev->get_semaphore());
 
     state.stp_cmd_in_streaming = false;
         
+    iim4623x_data imu_data;
 
     if (hal.gpio->read(drdy_pin))
     {
         dev->transfer(nullptr, 0,(uint8_t *)&rbuf_data, 46);
     }
 
-    iim4623x_data data;
+    // uint32_t sample_val;
+    for (uint32_t i=0; i<g_ul_out_num; i++) {
+        // sample_val = read_u32_data(&rbuf_data[14+4*i]);
+        // u32_sample[i]->val = *((float*)&sample_val);
+        u32_sample[i]->u32 = read_u32_data(&rbuf_data[14+4*i]);
+    }
+
+
+    int32_t ax_int = int32_t(state.acc_x.u32); 
+    int32_t ay_int = int32_t(state.acc_y.u32); 
+    int32_t az_int = int32_t(state.acc_z.u32); 
+    int32_t gx_int = int32_t(state.gyro_x.u32); 
+    int32_t gy_int = int32_t(state.gyro_y.u32); 
+    int32_t gz_int = int32_t(state.gyro_z.u32); 
+    int32_t temp_int = int32_t(state.temp.u32);
+
+    float accel_factor = 16.0/pow(2.0,31.0);
+    float gyro_factor = 2000.0/pow(2.0,31.0);
+
+    float ax = accel_factor * ax_int;
+    float ay = accel_factor * ay_int;
+    float az = accel_factor * az_int;
+    float gx = gyro_factor * gx_int;
+    float gy = gyro_factor * gy_int;
+    float gz = gyro_factor * gz_int;
+
+    Vector3f accel{ax, -ay, -az};
+    Vector3f gyro{gx, -gy, -gz};
+    // GCS_SEND_TEXT(MAV_SEVERITY_WARNING, "accel: %ld, %ld, %ld gyro: %ld, %ld, %ld", state.acc_x.u32, state.acc_y.u32, state.acc_z.u32, state.gyro_x.u32, state.gyro_y.u32, state.gyro_z.u32);
+    memcpy((uint8_t *) &imu_data, rbuf_data,sizeof(imu_data));//sizeof(data)
     
-    memcpy((uint8_t *)&data, rbuf_data,sizeof(data));
+    
 
 
-    if (data.hdr ==0x2323 && data.footer == 0x0D0A ){
+    // accel *= accel_factor;
+    // gyro *= gyro_factor;
+    // GCS_SEND_TEXT(MAV_SEVERITY_WARNING, "Gyro raw: %ld Gyro scaled: (%f)", state.gyro_x.u32,  gyro.x);
+    // GCS_SEND_TEXT(MAV_SEVERITY_WARNING, "Accel raw: %ld Accel scaled: (%f)", state.acc_x.u32,  accel.x);
+    if (imu_data.hdr ==0x2323 && imu_data.footer == 0x0D0A ){
         uint16_t sum = 0;
 	    for (uint32_t i = 3; i < sizeof(rbuf_data)-7; i++) sum += (uint16_t)rbuf_data[i];
-        if (sum !=data.checksum){
+        if (sum !=imu_data.checksum){
             GCS_SEND_TEXT(MAV_SEVERITY_WARNING, "IIM_4623x: data is not valid");
            return; 
         }
         
     }
-    GCS_SEND_TEXT(MAV_SEVERITY_WARNING, "IIM_4623x: data is valid");
-   
-    Vector3f accel{float((8*be32toh(data.ax)*GRAVITY_MSS)/pow(2,31)),
-                  -float((8*be32toh(data.ay)*GRAVITY_MSS)/pow(2,31)),
-                  -float((8*be32toh(data.az)*GRAVITY_MSS)/pow(2,31))};
-    Vector3f gyro{float(500*be32toh(data.gx)/pow(2,31)),
-                    -float(500*be32toh(data.gy)/pow(2,31)),
-                    -float(500*be32toh(data.gz)/pow(2,31))};
 
+    
+
+    // uint32_t ax_int = (rbuf_data[13] << 24) | (rbuf_data[12] << 16) | (rbuf_data[11] << 8) | rbuf_data[10];
+    // uint32_t ay_int = (rbuf_data[17] << 24) | (rbuf_data[16] << 16) | (rbuf_data[15] << 8) | rbuf_data[14];
+    // uint32_t az_int = (rbuf_data[21] << 24) | (rbuf_data[20] << 16) | (rbuf_data[19] << 8) | rbuf_data[18];
+    // uint32_t gx_int = (rbuf_data[25] << 24) | (rbuf_data[24] << 16) | (rbuf_data[23] << 8) | rbuf_data[22];
+    // uint32_t gy_int = (rbuf_data[29] << 24) | (rbuf_data[28] << 16) | (rbuf_data[27] << 8) | rbuf_data[26];
+    // uint32_t gz_int = (rbuf_data[33] << 24) | (rbuf_data[32] << 16) | (rbuf_data[31] << 8) | rbuf_data[30];
+
+   
+    // GCS_SEND_TEXT(MAV_SEVERITY_WARNING, "Accel raw: (%ld, %ld,%ld) Accel: (%f, %f,%f)", state.acc_x.u32, state.acc_y.u32, state.acc_z.u32, accel.x, accel.y, accel.z);
+    // GCS_SEND_TEXT(MAV_SEVERITY_WARNING, "Accel: (%f, %f,%f) Gyro: (%f, %f,%f)", accel.x, accel.y, accel.z, gyro.x, gyro.y, gyro.z);
+    // // GCS_SEND_TEXT(MAV_SEVERITY_WARNING, "Gyro raw: (%lu, %lu,%lu) Gyro: (%.2f, %.2f,%.2f)", imu_data.gx, imu_data.gy, imu_data.gz, gyro.x, gyro.y, gyro.z);
     _rotate_and_correct_accel(accel_instance, accel);
     _notify_new_accel_raw_sample(accel_instance, accel);
 
@@ -549,12 +710,8 @@ void AP_InertialSensor_IIM4623x::read_sensor()
     _notify_new_gyro_raw_sample(gyro_instance, gyro);
 
     
-    // Vector3f dvel{float(dvel_scale*int32_t(be16toh(data.dvx_low) | (be16toh(data.dvx_high)<<16))),
-    //               -float(dvel_scale*int32_t(be16toh(data.dvy_low) | (be16toh(data.dvy_high)<<16))),
-    //               -float(dvel_scale*int32_t(be16toh(data.dvz_low) | (be16toh(data.dvz_high)<<16)))};
-    // Vector3f dangle{float(dangle_scale*int32_t(be16toh(data.dax_low) | (be16toh(data.dax_high)<<16))),
-    //                 -float(dangle_scale*int32_t(be16toh(data.day_low) | (be16toh(data.day_high)<<16))),
-    //                 -float(dangle_scale*int32_t(be16toh(data.daz_low) | (be16toh(data.daz_high)<<16)))};
+    // Vector3f dvel{};
+    // Vector3f dangle{};
 
     // // compensate for clock errors, see "DELTA ANGLES" in datasheet
     // dangle *= expected_sample_rate_hz / _gyro_raw_sample_rate(gyro_instance);
@@ -566,14 +723,14 @@ void AP_InertialSensor_IIM4623x::read_sensor()
     /*
       publish average temperature at 20Hz
      */
-    temp_sum += float(be32toh(data.temp)/126.8 +25);
+    temp_sum += float(temp_int/126.8 +25.0);
     temp_count++;
 
     if (temp_count == 100) {
         _publish_temperature(accel_instance, temp_sum/temp_count);
         temp_sum = 0;
         temp_count = 0;
-        GCS_SEND_TEXT(MAV_SEVERITY_WARNING, "IIM_4623x: Received %d \n", data.sample_ctr);
+        // GCS_SEND_TEXT(MAV_SEVERITY_WARNING, "IIM_4623x: Received %d \n", imu_data.sample_ctr);
     }
 }
 
@@ -596,71 +753,20 @@ uint32_t read_length = 0;
 // {
 //     return dev->read_registers(reg, (uint8_t *)&data, sizeof(data));
 // }
-void IIM4623x_SetCMD_Common(uint8_t cmd_type)
+void IIM4623x_Set_AccelConfig0(enum IIM4623x_AccelConfig0 fsr)
 {
-	for (uint32_t i = 0; i < SIZE_PACKET_CMD; i++) state.cmd_packet[i] = 0x00;
-	state.cmd_packet[0] = BYTE_HEADER_CMD;
-	state.cmd_packet[1] = BYTE_HEADER_CMD;
-	state.cmd_packet[2] = SIZE_CMD_COMMON;
-	state.cmd_packet[3] = cmd_type;
-	uint16_t checksum = calc_checksum(&state.cmd_packet[3], 1);
-	state.cmd_packet[4] = (uint8_t)(checksum >> 8);
-	state.cmd_packet[5] = (uint8_t)(checksum &= 0x00FF);
-	state.cmd_packet[6] = BYTE_FOOTER_1;
-	state.cmd_packet[7] = BYTE_FOOTER_2;
+
+	state.accel_fsr &= 0x1f;
+	state.accel_fsr |= fsr;
+	IIM4623x_SetCMD_WriteRegister(ACCEL_CONFIG0, (uint8_t *)&state.accel_fsr);
+
 }
-// uint8_t cmd_packet[20];
-
-void IIM4623x_SetCMD_ReadRegister()
+void IIM4623x_Set_GyroConfig0(enum IIM4623x_GyroConfig0 fsr)
 {
-	for (uint32_t i = 0; i < SIZE_PACKET_CMD; i++) state.cmd_packet[i] = 0x00;
-	state.cmd_packet[0] = BYTE_HEADER_CMD;
-	state.cmd_packet[1] = BYTE_HEADER_CMD;
-	state.cmd_packet[2] = SIZE_CMD_READ_REGS;
-	state.cmd_packet[3] = CMD_TYPE_READ_REG;
-	state.cmd_packet[4] = BYTE_RESERVED;
-	state.cmd_packet[5] = 1;//user_reg.length;
-	state.cmd_packet[6] = 0x00;//user_reg.first_addr;
-	state.cmd_packet[7] = 0;//user_reg.page_id;
-	uint16_t checksum = calc_checksum(&state.cmd_packet[3], 5);
-	state.cmd_packet[8] = (uint8_t)(checksum >> 8);
-	state.cmd_packet[9] = (uint8_t)(checksum &= 0x00FF);
-	state.cmd_packet[10] = BYTE_FOOTER_1;
-	state.cmd_packet[11] = BYTE_FOOTER_2;
-}
-float_uint_t* u32_sample[13];
-uint32_t g_ul_out_num = 0;
+	state.gyro_fsr &= 0x1f;
+	state.gyro_fsr |= fsr;
+	IIM4623x_SetCMD_WriteRegister(GYRO_CONFIG0, (uint8_t *)&state.gyro_fsr);
 
-
-void IIM4623x_SetCMD_WriteRegister(reg user_reg, uint8_t *value)
-{
-	for (uint32_t i = 0; i < SIZE_PACKET_CMD; i++) state.cmd_packet[i] = 0x00;
-	state.cmd_packet[0] = BYTE_HEADER_CMD;
-	state.cmd_packet[1] = BYTE_HEADER_CMD;
-	state.cmd_packet[2] = SIZE_CMD_WRITE_REGS_BASE + user_reg.length;
-	state.cmd_packet[3] = CMD_TYPE_WRITE_REG;
-	state.cmd_packet[4] = BYTE_RESERVED;
-	state.cmd_packet[5] = user_reg.length;
-	state.cmd_packet[6] = user_reg.first_addr;
-	state.cmd_packet[7] = user_reg.page_id;
-	if (user_reg.length == 1)
-		state.cmd_packet[8] = *value;
-	else if (user_reg.length == 2) {
-		state.cmd_packet[8] = (uint8_t)((*value) >> 8);
-		state.cmd_packet[9] = (uint8_t)((*value) &= 0x00FF);
-	}
-	else if (user_reg.length == 4) {
-		state.cmd_packet[8] = *value;
-		state.cmd_packet[9] = *(value+1);
-		state.cmd_packet[10] = *(value+2);
-		state.cmd_packet[11] = *(value+3);	
-	}	
-	
-	uint16_t checksum = calc_checksum(&state.cmd_packet[3], 5+user_reg.length);
-	state.cmd_packet[8+user_reg.length] = (uint8_t)(checksum >> 8);
-	state.cmd_packet[9+user_reg.length] = (uint8_t)(checksum &= 0x00FF);	
-	state.cmd_packet[10+user_reg.length] = BYTE_FOOTER_1;
-	state.cmd_packet[11+user_reg.length] = BYTE_FOOTER_2;
 }
 
 
@@ -668,7 +774,7 @@ void AP_InertialSensor_IIM4623x::transfer_packet(uint8_t out_packet[20], int rec
     WITH_SEMAPHORE(dev->get_semaphore());
     
     
-    dev->transfer(out_packet,20,nullptr, 0);
+    dev->transfer(out_packet,SIZE_PACKET_CMD,nullptr, 0);
     count =0;
     while (!hal.gpio->read(drdy_pin)){
         count = count+1;
@@ -681,6 +787,8 @@ void AP_InertialSensor_IIM4623x::transfer_packet(uint8_t out_packet[20], int rec
     dev->transfer(nullptr, 0,(uint8_t *)&rec_packet, rec_pkt_len);
     hal.scheduler->delay(1);
 }
+
+
 // uint8_t drdy_state;
 bool AP_InertialSensor_IIM4623x::init()
 {
@@ -690,12 +798,18 @@ bool AP_InertialSensor_IIM4623x::init()
     // drdy_state = hal.gpio->read(drdy_pin);//drdy_pin=60
 
     WITH_SEMAPHORE(dev->get_semaphore());
+    dev->set_device_type(DEVTYPE_INS_IIM4623X);
     //read whoami
     IIM4623x_SetCMD_ReadRegister();
     transfer_packet(state.cmd_packet,SIZE_RESP_READ_REGS_BASE+state.cmd_packet[5]);
-    
-    //set output to fixed point
+
+    // set output to fixed point
     transfer_packet(cmd_set_output_to_fixed_point,SIZE_RESP_ACK);
+
+    // OUT_DATA_FORM  set output to floating point
+    // uint8_t data_form = 0;
+    // IIM4623x_SetCMD_WriteRegister(OUT_DATA_FORM, &data_form);
+    // transfer_packet(state.cmd_packet,SIZE_RESP_ACK);
 
     //set odr rate to 1kHz
     uint8_t odr_rate = 1;
@@ -703,19 +817,18 @@ bool AP_InertialSensor_IIM4623x::init()
     transfer_packet(state.cmd_packet,SIZE_RESP_ACK);
 
     //set accel fsr to 16g
-    state.accel_fsr &= 0x1f;
-	state.accel_fsr |= ACC_FSR_16G;
-    IIM4623x_SetCMD_WriteRegister(ACCEL_CONFIG0,  (uint8_t *)&state.accel_fsr);
+    IIM4623x_Set_AccelConfig0(ACC_FSR_16G);
     transfer_packet(state.cmd_packet,SIZE_RESP_ACK);
 
     //set gyro fsr to 2000dps
-    state.gyro_fsr &= 0x1f;
-	state.gyro_fsr |= GYRO_FSR_2000DPS;
-	IIM4623x_SetCMD_WriteRegister(GYRO_CONFIG0, (uint8_t *)&state.gyro_fsr);
+    IIM4623x_Set_GyroConfig0(GYRO_FSR_2000DPS);
     transfer_packet(state.cmd_packet,SIZE_RESP_ACK);
 
-    IIM4623x_SetCMD_Common(CMD_TYPE_START_STREAMING);
-    dev->transfer(state.cmd_packet,8,nullptr, 0);
+
+
+    IIM4623x_Start_Streaming();
+    dev->transfer(state.cmd_packet,20,nullptr, 0);
+    
 
 
 
