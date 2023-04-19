@@ -26,9 +26,7 @@
 #include <AP_HAL/utility/sparse-endian.h>
 #include <GCS_MAVLink/GCS.h>
 #include <stdio.h>
-#include <fstream>
-#include <chrono>
-#include <iomanip>
+
 
 //#include <iostream>
 //#include <cstdint>
@@ -253,6 +251,8 @@ typedef union{
 	float val; //Floating point value
 	uint32_t u32; //Fixed point value
 }float_uint_t;
+
+
 union iim4623x_serialnumber {
         uint16_t hdr;
         uint8_t length;
@@ -515,8 +515,6 @@ void IIM4623x_Start_Streaming(void)
     u32_sample[g_ul_out_num] = &state.gyro_z;
     g_ul_out_num++;			
 
-
-
     u32_sample[g_ul_out_num] = &state.temp;
     g_ul_out_num++;
    
@@ -620,6 +618,13 @@ bool AP_InertialSensor_IIM4623x::check_product_id(uint32_t &prod_id)
 // }
 uint8_t rbuf_data[SIZE_PACKET_FULL_DATA];
 
+    // uint32_t ax_int = (rbuf_data[13] << 24) | (rbuf_data[12] << 16) | (rbuf_data[11] << 8) | rbuf_data[10];
+    // uint32_t ay_int = (rbuf_data[17] << 24) | (rbuf_data[16] << 16) | (rbuf_data[15] << 8) | rbuf_data[14];
+    // uint32_t az_int = (rbuf_data[21] << 24) | (rbuf_data[20] << 16) | (rbuf_data[19] << 8) | rbuf_data[18];
+    // uint32_t gx_int = (rbuf_data[25] << 24) | (rbuf_data[24] << 16) | (rbuf_data[23] << 8) | rbuf_data[22];
+    // uint32_t gy_int = (rbuf_data[29] << 24) | (rbuf_data[28] << 16) | (rbuf_data[27] << 8) | rbuf_data[26];
+    // uint32_t gz_int = (rbuf_data[33] << 24) | (rbuf_data[32] << 16) | (rbuf_data[31] << 8) | rbuf_data[30];
+
 inline uint32_t read_u32_data(uint8_t *p_buf)
 {
 	uint32_t value;
@@ -661,15 +666,26 @@ void AP_InertialSensor_IIM4623x::read_sensor()
     float accel_factor = 16.0/pow(2.0,31.0);
     float gyro_factor = 2000.0/pow(2.0,31.0);
 
-    float ax = accel_factor * ax_int;
-    float ay = accel_factor * ay_int;
-    float az = accel_factor * az_int;
-    float gx = gyro_factor * gx_int;
-    float gy = gyro_factor * gy_int;
-    float gz = gyro_factor * gz_int;
+    // float ax = accel_factor * ax_int;
+    // float ay = accel_factor * ay_int;
+    // float az = accel_factor * az_int;
+    // float gx = gyro_factor * gx_int;
+    // float gy = gyro_factor * gy_int;
+    // float gz = gyro_factor * gz_int;
 
-    Vector3f accel{ax, -ay, -az};
-    Vector3f gyro{gx, -gy, -gz};
+
+    float ax = accel_factor * static_cast<int32_t>(ax_int);
+    float ay = accel_factor * static_cast<int32_t>(ay_int);
+    float az = accel_factor * static_cast<int32_t>(az_int);
+    float gx = gyro_factor * static_cast<int32_t>(gx_int);
+    float gy = gyro_factor * static_cast<int32_t>(gy_int);
+    float gz = gyro_factor * static_cast<int32_t>(gz_int);
+
+
+
+    Vector3f accel{az, -ay, -ax};
+    Vector3f gyro{gz, -gy, -gx};
+    gyro *= (float)M_PI / 180.0;
     // GCS_SEND_TEXT(MAV_SEVERITY_WARNING, "accel: %ld, %ld, %ld gyro: %ld, %ld, %ld", state.acc_x.u32, state.acc_y.u32, state.acc_z.u32, state.gyro_x.u32, state.gyro_y.u32, state.gyro_z.u32);
     memcpy((uint8_t *) &imu_data, rbuf_data,sizeof(imu_data));//sizeof(data)
     
@@ -678,8 +694,8 @@ void AP_InertialSensor_IIM4623x::read_sensor()
 
     // accel *= accel_factor;
     // gyro *= gyro_factor;
-    // GCS_SEND_TEXT(MAV_SEVERITY_WARNING, "Gyro raw: %ld Gyro scaled: (%f)", state.gyro_x.u32,  gyro.x);
-    // GCS_SEND_TEXT(MAV_SEVERITY_WARNING, "Accel raw: %ld Accel scaled: (%f)", state.acc_x.u32,  accel.x);
+    // GCS_SEND_TEXT(MAV_SEVERITY_WARNING, "IIM46234 Accel: (%f) Gyro: (%f)", accel.x,  gyro.x);
+    // GCS_SEND_TEXT(MAV_SEVERITY_WARNING, "Accel uint32: %ld int32: %ld scaled %f", state.acc_x.u32,  ax_int, ax);
     if (imu_data.hdr ==0x2323 && imu_data.footer == 0x0D0A ){
         uint16_t sum = 0;
 	    for (uint32_t i = 3; i < sizeof(rbuf_data)-7; i++) sum += (uint16_t)rbuf_data[i];
@@ -689,15 +705,6 @@ void AP_InertialSensor_IIM4623x::read_sensor()
         }
         
     }
-
-    
-
-    // uint32_t ax_int = (rbuf_data[13] << 24) | (rbuf_data[12] << 16) | (rbuf_data[11] << 8) | rbuf_data[10];
-    // uint32_t ay_int = (rbuf_data[17] << 24) | (rbuf_data[16] << 16) | (rbuf_data[15] << 8) | rbuf_data[14];
-    // uint32_t az_int = (rbuf_data[21] << 24) | (rbuf_data[20] << 16) | (rbuf_data[19] << 8) | rbuf_data[18];
-    // uint32_t gx_int = (rbuf_data[25] << 24) | (rbuf_data[24] << 16) | (rbuf_data[23] << 8) | rbuf_data[22];
-    // uint32_t gy_int = (rbuf_data[29] << 24) | (rbuf_data[28] << 16) | (rbuf_data[27] << 8) | rbuf_data[26];
-    // uint32_t gz_int = (rbuf_data[33] << 24) | (rbuf_data[32] << 16) | (rbuf_data[31] << 8) | rbuf_data[30];
 
    
     // GCS_SEND_TEXT(MAV_SEVERITY_WARNING, "Accel raw: (%ld, %ld,%ld) Accel: (%f, %f,%f)", state.acc_x.u32, state.acc_y.u32, state.acc_z.u32, accel.x, accel.y, accel.z);
