@@ -1,0 +1,64 @@
+# 3DR mosaic-X5 RTK GNSS w/Compass and Barometer - M10044
+# Board dimensions: diameter 67mm
+
+# MCU class and specific type
+MCU STM32G491 STM32G491xx
+
+FLASH_RESERVE_START_KB 0
+FLASH_BOOTLOADER_LOAD_KB 32
+
+APP_START_OFFSET_KB 4
+
+FLASH_SIZE_KB 512
+
+# board ID for firmware load
+APJ_BOARD_ID 1122
+
+# setup build for a peripheral firmware
+env AP_PERIPH 1
+
+# crystal frequency
+OSCILLATOR_HZ 8000000
+
+define CH_CFG_ST_FREQUENCY 1000000
+
+PA4 LED_BOOTLOADER OUTPUT HIGH
+define HAL_LED_ON 1
+
+# Debug interface
+PA13 JTMS-SWDIO SWD
+PA14 JTCK-SWCLK SWD
+
+# order of UARTs
+#SERIAL_ORDER USART2
+
+#STDOUT_SERIAL SD2
+#STDOUT_BAUDRATE 57600
+
+define HAL_NO_GPIO_IRQ
+define HAL_USE_EMPTY_IO TRUE
+define HAL_NO_TIMER_THREAD
+define HAL_NO_RCIN_THREAD
+define DMA_RESERVE_SIZE 0
+define HAL_DISABLE_LOOP_DELAY
+define HAL_USE_SERIAL FALSE
+
+# USART2, debug
+#PB3 USART2_TX USART2 SPEED_HIGH NODMA
+#PB4 USART2_RX USART2 SPEED_HIGH NODMA
+
+# enable CAN support
+PA11 CAN1_RX CAN1
+PA12 CAN1_TX CAN1
+
+# bootloader timeout
+define HAL_BOOTLOADER_TIMEOUT 1000
+
+# use LOG_BTN as stay-in-bootloader, it is active low
+PA1 STAY_IN_BOOTLOADER INPUT PULLUP
+define HAL_STAY_IN_BOOTLOADER_VALUE 0
+
+# Add CS HAL_PERIPH_ENABLE_GPS
+PA8 MAG_CS CS
+
+define CAN_APP_NODE_NAME "com.3dr.mosaicX5CAN"

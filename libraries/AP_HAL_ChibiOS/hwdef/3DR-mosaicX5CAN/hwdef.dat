@@ -1,0 +1,134 @@
+# 3DR mosaic-X5 RTK GNSS w/Compass and Barometer -  M10044
+# Board dimensions: diameter 67mm
+
+# MCU class and specific type
+MCU STM32G4xx STM32G491xx
+
+FLASH_RESERVE_START_KB 36
+# This G4 has 2k flash pages
+STORAGE_FLASH_PAGE 16
+# should we allocate more space for params?
+define HAL_STORAGE_SIZE 800
+
+# board ID for firmware load
+APJ_BOARD_ID 1122
+
+# setup build for a peripheral firmware
+env AP_PERIPH 1
+
+# crystal frequency
+OSCILLATOR_HZ 8000000
+
+#define CH_CFG_ST_FREQUENCY 1000000
+
+FLASH_SIZE_KB 512
+
+# order of UARTs
+SERIAL_ORDER EMPTY USART1
+
+define HAL_USE_SERIAL TRUE
+define STM32_SERIAL_USE_USART1 TRUE
+define STM32_SERIAL_USE_USART2 TRUE
+define STM32_SERIAL_USE_USART3 FALSE
+
+# USART1, mosaicX5
+PA9 USART1_TX USART1 SPEED_HIGH
+PA10 USART1_RX USART1 SPEED_HIGH
+
+# USART2, debug
+PB3 USART2_TX USART2 SPEED_HIGH NODMA
+PB4 USART2_RX USART2 SPEED_HIGH NODMA
+
+STDOUT_SERIAL SD2
+STDOUT_BAUDRATE 115200
+
+# debugger support
+PA13 JTMS-SWDIO SWD
+PA14 JTCK-SWCLK SWD
+
+# spi bus, RM3100
+PA5 SPI1_SCK SPI1
+PA6 SPI1_MISO SPI1
+PA7 SPI1_MOSI SPI1
+
+PA8 MAG_CS CS
+
+define HAL_USE_I2C TRUE
+define STM32_I2C_USE_I2C1 TRUE
+
+#define HAL_I2C_CLEAR_ON_TIMEOUT 0
+define HAL_I2C_INTERNAL_MASK 1
+
+I2C_ORDER I2C1
+PB7 I2C1_SDA I2C1
+PA15 I2C1_SCL I2C1
+
+# GPS PPS
+PB6 GPS_PPS_IN INPUT
+
+# rm3100 mag on SPI
+SPIDEV rm3100 SPI1 DEVID1 MAG_CS MODE3 1*MHZ 1*MHZ
+COMPASS RM3100 SPI:rm3100 false ROTATION_YAW_270
+
+BARO DPS280 I2C:0:0x77
+
+# analog input
+define HAL_USE_ADC TRUE
+define STM32_ADC_USE_ADC1 TRUE
+
+# scale not verified
+PA0 VSENSE50 ADC1 SCALE(2.2)
+
+define HAL_NO_GPIO_IRQ
+define HAL_USE_EMPTY_IO TRUE
+
+# avoid timer and RCIN threads to save memory
+define HAL_NO_TIMER_THREAD
+
+define HAL_USE_RTC FALSE
+define DMA_RESERVE_SIZE 0
+define HAL_DISABLE_LOOP_DELAY
+define HAL_NO_MONITOR_THREAD
+
+# disable dual GPS and GPS blending to save flash space
+define GPS_MAX_RECEIVERS 1
+define GPS_MAX_INSTANCES 1
+define HAL_COMPASS_MAX_SENSORS 1
+
+define HAL_DEVICE_THREAD_STACK 768
+
+# enable CAN support
+PA11 CAN1_RX CAN1
+PA12 CAN1_TX CAN1
+
+# disable dual GPS and GPS blending to save flash space
+define GPS_MAX_RECEIVERS 1
+define GPS_MAX_INSTANCES 1
+define HAL_COMPASS_MAX_SENSORS 1
+
+# single baro
+define BARO_MAX_INSTANCES 1
+
+define HAL_PERIPH_ENABLE_GPS
+define HAL_PERIPH_ENABLE_MAG
+define HAL_PERIPH_ENABLE_BARO
+
+env ROMFS_UNCOMPRESSED True
+
+#DMA_NOSHARE USART1*
+
+# LOG_BTN to start Mosaic logging
+#PA1 LOG_BTN INPUT FLOATING GPIO(74)
+
+# a LED to flash for CAN activity
+PA4 LED OUTPUT HIGH
+
+define HAL_CAN_DEFAULT_NODE_ID 0
+
+# mosaic-X5 on U1 -- no longer needed
+#define HAL_GPS_TYPE_DEFAULT 10
+#define HAL_GPS_COM_PORT_DEFAULT 1
+#define GPS_SBF_STREAM_NUMBER 1
+#define GPS_SBF_EXTRA_CONFIG "sdfa, DSK1, DeleteOldest", "sfn, DSK1, Incremental, Mosaic", "sfno, off"
+
+define CAN_APP_NODE_NAME "com.3dr.mosaicX5CAN"
