@@ -77,6 +77,7 @@ public:
         DEVTYPE_BMM350 = 0x17,
         DEVTYPE_IIS2MDC = 0x18,
         DEVTYPE_LIS2MDL = 0x19,
+        DEVTYPE_AK09940A = 0x20,
     };
 
 #if AP_COMPASS_MSP_ENABLED
