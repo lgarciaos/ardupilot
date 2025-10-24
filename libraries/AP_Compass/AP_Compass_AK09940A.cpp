@@ -18,7 +18,8 @@
 
 #if AP_COMPASS_AK09940A_ENABLED
 
-#include <assert.h>
+// #include <assert.h>
+#include <stdio.h>
 #include <utility>
 
 #include <AP_Math/AP_Math.h>
@@ -28,7 +29,7 @@
 
 #define AK09940A_WIA1                                   0x00
 #       define      AK09940A_MFG_ID                     0x48
-#define AK09940A_WIA2                                   0x00
+#define AK09940A_WIA2                                   0x01
 #       define      AK09940A_DEV_ID                     0xA3
 
 #define AK09940_ST                                      0x0F
@@ -67,16 +68,16 @@
 
 extern const AP_HAL::HAL &hal;
 
-AP_Compass_AK09940A::AP_Compass_AK09940A(AP_AK09940A_BusDriver *bus,
+AP_Compass_AK09940A::AP_Compass_AK09940A(AP_HAL::OwnPtr<AP_HAL::Device> dev,
                                      enum Rotation rotation)
-    : _bus(bus)
+    : _dev(std::move(dev))
     , _rotation(rotation)
 {
 }
 
 AP_Compass_AK09940A::~AP_Compass_AK09940A()
 {
-    delete _bus;
+    delete _dev;
 }
 
 AP_Compass_Backend *AP_Compass_AK09940A::probe(AP_HAL::OwnPtr<AP_HAL::I2CDevice> dev,
@@ -85,12 +86,8 @@ AP_Compass_Backend *AP_Compass_AK09940A::probe(AP_HAL::OwnPtr<AP_HAL::I2CDevice>
     if (!dev) {
         return nullptr;
     }
-    AP_AK09940A_BusDriver *bus = NEW_NOTHROW AP_AK09940A_BusDriver_HALDevice(std::move(dev));
-    if (!bus) {
-        return nullptr;
-    }
-
-    AP_Compass_AK09940A *sensor = NEW_NOTHROW AP_Compass_AK09940A(bus, rotation);
+    
+    AP_Compass_AK09940A *sensor = NEW_NOTHROW AP_Compass_AK09940A(std::move(dev), rotation);
     if (!sensor || !sensor->init()) {
         delete sensor;
         return nullptr;
@@ -101,37 +98,24 @@ AP_Compass_Backend *AP_Compass_AK09940A::probe(AP_HAL::OwnPtr<AP_HAL::I2CDevice>
 
 bool AP_Compass_AK09940A::init()
 {
-    AP_HAL::Semaphore *bus_sem = _bus->get_semaphore();
-
-    if (!bus_sem) {
-        return false;
-    }
-    _bus->get_semaphore()->take_blocking();
-
-    if (!_bus->configure()) {
-        DEV_PRINTF("AK09940A: Could not configure the bus\n");
-        goto fail;
-    }
+    AP_HAL::Semaphore *dev_sem = _dev->get_semaphore();
+    _dev->get_semaphore()->take_blocking();
+    _dev->set_retries(3);
 
     if (!_check_id()) {
-        DEV_PRINTF("AK09940A: Wrong id\n");
+        DEV_PRINTF("AK09940A: Wrong device ID\n");
         goto fail;
     }
+    
+    // if (!_self_test()) {
+    //     DEV_PRINTF("AK09940A: Could not read calibration data\n");
+    //     goto fail;
+    // }
 
-    if (!_calibrate()) {
-        DEV_PRINTF("AK09940A: Could not read calibration data\n");
-        goto fail;
-    }
-
-    if (!_setup_mode()) {
-        DEV_PRINTF("AK09940A: Could not setup mode\n");
-        goto fail;
-    }
-
-    if (!_bus->start_measurements()) {
-        DEV_PRINTF("AK09940A: Could not start measurements\n");
-        goto fail;
-    }
+    // if (!_dev->start_measurements()) {
+    //     DEV_PRINTF("AK09940A: Could not start measurements\n");
+    //     goto fail;
+    // }
 
     _initialized = true;
 
@@ -141,16 +125,16 @@ bool AP_Compass_AK09940A::init()
         goto fail;
     }
     set_dev_id(_compass_instance, _bus->get_bus_id());
-
+// 
     set_rotation(_compass_instance, _rotation);
-    bus_sem->give();
+    dev_sem->give();
 
-    _bus->register_periodic_callback(10000, FUNCTOR_BIND_MEMBER(&AP_Compass_AK09940A::_update, void));
+    _dev->register_periodic_callback(10000, FUNCTOR_BIND_MEMBER(&AP_Compass_AK09940A::_update, void));
 
     return true;
 
 fail:
-    bus_sem->give();
+    dev_sem->give();
     return false;
 }
 
@@ -163,43 +147,37 @@ void AP_Compass_AK09940A::read()
     drain_accumulated_samples(_compass_instance);
 }
 
-void AP_Compass_AK09940A::_make_adc_sensitivity_adjustment(Vector3f& field) const
-{
-    static const float ADC_16BIT_RESOLUTION = 0.15f;
-
-    field *= ADC_16BIT_RESOLUTION;
-}
-
-void AP_Compass_AK09940A::_make_factory_sensitivity_adjustment(Vector3f& field) const
-{
-    field.x *= _magnetometer_ASA[0];
-    field.y *= _magnetometer_ASA[1];
-    field.z *= _magnetometer_ASA[2];
-}
-
 void AP_Compass_AK09940A::_update()
 {
-    struct sample_regs regs;
-    Vector3f raw_field;
-
-    if (!_bus->block_read(AK09940A_HXL, (uint8_t *) &regs, sizeof(regs))) {
+    struct PACKED 
+    {
+        uint8_t magx[3];
+        uint8_t magy[3];
+        uint8_t magz[3];
+    } data;
+    
+    if (!_dev->read_bytes(AK09940A_HXL, (uint8_t *)&data, sizeof(data))) {
         return;
     }
-
+    uint32_t st2;
+    if(!_dev->read_byte(AK09940A_ST2, &st2)) {
+        return;
+    }
+   
     /* Check for overflow. See AK09940A's datasheet, section
      * 6.4.3.6 - Magnetic Sensor Overflow. */
-    if ((regs.st2 & 0x08)) {
-        return;
-    }
+    // if ((regs.st2 & 0x08)) {
+    //     return;
+    // }
 
-    raw_field = Vector3f(regs.val[0], regs.val[1], regs.val[2]);
+    Vector3f raw_field;
+    // raw_field = Vector3f(regs.val[0], regs.val[1], regs.val[2]);
+    // if (is_zero(raw_field.x) && is_zero(raw_field.y) && is_zero(raw_field.z)) {
+    //     return;
+    // }
 
-    if (is_zero(raw_field.x) && is_zero(raw_field.y) && is_zero(raw_field.z)) {
-        return;
-    }
-
-    _make_factory_sensitivity_adjustment(raw_field);
-    _make_adc_sensitivity_adjustment(raw_field);
+    // _make_factory_sensitivity_adjustment(raw_field);
+    // _make_adc_sensitivity_adjustment(raw_field);
     raw_field *= AK09940A_MILLIGAUSS_SCALE;
 
     accumulate_sample(raw_field, _compass_instance, 10);
@@ -209,20 +187,19 @@ bool AP_Compass_AK09940A::_check_id()
 {
     for (int i = 0; i < 5; i++) {
         uint8_t deviceid = 0;
+        uint8_t mfgid = 0;
 
-        /* Read AK09940A's id */
-        if (_bus->register_read(AK09940A_WIA, &deviceid) &&
-            deviceid == AK09940A_Device_ID) {
+        // if (_bus->register_read(AK09940A_WIA, &deviceid) &&
+        //     deviceid == AK09940A_Device_ID) {
+        //     return true;
+        // }
+        _bus->register_read(AK09940A_WIA1, &mfgid);
+        _bus->register_read(AK09940A_WIA2, &deviceid);
+        if (deviceid == AK09940A_DEV_ID && mfgid == AK09940A_MFG_ID) {
             return true;
         }
     }
-
     return false;
-}
-
-bool AP_Compass_AK09940A::_setup_mode(uint8_t mode) 
-{
-    return _bus->register_write(AK09940A_CNTL2, mode);
 }
 
 bool AP_Compass_AK09940A::_reset()
@@ -230,53 +207,81 @@ bool AP_Compass_AK09940A::_reset()
     return _bus->register_write(AK09940A_CNTL4, AK09940A_RESET);
 }
 
-
-bool AP_Compass_AK09940A::_calibrate()
+bool AP_Compass_AK09940A::_set_mode(uint8_t mode)
 {
-    /* Enable FUSE-mode in order to be able to read calibration data */
-    _bus->register_write(AK09940A_CNTL1, AK09940A_FUSE_MODE | AK09940A_16BIT_ADC);
+    return _bus->register_write(AK09940A_CNTL3, mode);
+}
 
-    uint8_t response[3];
+bool AP_Compass_AK09940A::_set_sensordrive(uint8_t sensordrive)
+{
+    uint8_t reg_ctrl3 = 0;
+    _dev->read(AK09940A_CNTL3, &reg_ctrl3);
+    reg_ctrl3 |= sensordrive; //FIXHERE 
+    return _bus->register_write(AK09940A_CNTL3, sensordrive);
+}
 
-    _bus->block_read(AK09940A_ASAX, response, 3);
+bool AP_Compass_AK09940A::_enable_fifo()
+{
+    uint8_t reg_ctrl3 = 0;
+    _dev->read(AK09940A_CNTL3, &reg_ctrl3);
+    reg_ctrl3 |= AK09940A_FIFO_EN;
+    return _dev->register_write(AK09940A_CNTL3, reg_ctrl3);
+}
 
-    for (int i = 0; i < 3; i++) {
-        float data = response[i];
-        _magnetometer_ASA[i] = ((data - 128) / 256 + 1);
-    }
+bool AP_Compass_AK09940A::_self_test()
+{
+     // Per AK099490A datasheet section 9.8.1
+     // 1. Set power down mode
+     // 2. Set low-noise drive 2
+     // 3. Set self-test mode
+     // 4. Check dataready
+     // 5. Read HXL to HZH
+     // 6. Read ST2 register
+     // 7. Store measurement data per axis.
+     // 8. Repeat 
+    // _bus->register_write(AK09940A_CNTL1, AK09940A_FUSE_MODE | AK09940A_16BIT_ADC);
+
+    // uint8_t response[3];
+
+    // _bus->block_read(AK09940A_ASAX, response, 3);
+
+    // for (int i = 0; i < 3; i++) {
+    //     float data = response[i];
+    //     _magnetometer_ASA[i] = ((data - 128) / 256 + 1);
+    // }
 
     return true;
 }
 
-/* AP_HAL::I2CDevice implementation of the AK09940A */
-AP_AK09940A_BusDriver_HALDevice::AP_AK09940A_BusDriver_HALDevice(AP_HAL::OwnPtr<AP_HAL::I2CDevice> dev)
-    : _dev(std::move(dev))
-{
-}
+// /* AP_HAL::I2CDevice implementation of the AK09940A */
+// AP_AK09940A_BusDriver_HALDevice::AP_AK09940A_BusDriver_HALDevice(AP_HAL::OwnPtr<AP_HAL::I2CDevice> dev)
+//     : _dev(std::move(dev))
+// {
+// }
 
-bool AP_AK09940A_BusDriver_HALDevice::block_read(uint8_t reg, uint8_t *buf, uint32_t size)
-{
-    return _dev->read_registers(reg, buf, size);
-}
+// bool AP_AK09940A_BusDriver_HALDevice::block_read(uint8_t reg, uint8_t *buf, uint32_t size)
+// {
+//     return _dev->read_registers(reg, buf, size);
+// }
 
-bool AP_AK09940A_BusDriver_HALDevice::register_read(uint8_t reg, uint8_t *val)
-{
-    return _dev->read_registers(reg, val, 1);
-}
+// bool AP_AK09940A_BusDriver_HALDevice::register_read(uint8_t reg, uint8_t *val)
+// {
+//     return _dev->read_registers(reg, val, 1);
+// }
 
-bool AP_AK09940A_BusDriver_HALDevice::register_write(uint8_t reg, uint8_t val)
-{
-    return _dev->write_register(reg, val);
-}
+// bool AP_AK09940A_BusDriver_HALDevice::register_write(uint8_t reg, uint8_t val)
+// {
+//     return _dev->write_register(reg, val);
+// }
 
-AP_HAL::Semaphore *AP_AK09940A_BusDriver_HALDevice::get_semaphore()
-{
-    return _dev->get_semaphore();
-}
+// AP_HAL::Semaphore *AP_AK09940A_BusDriver_HALDevice::get_semaphore()
+// {
+//     return _dev->get_semaphore();
+// }
 
-AP_HAL::Device::PeriodicHandle AP_AK09940A_BusDriver_HALDevice::register_periodic_callback(uint32_t period_usec, AP_HAL::Device::PeriodicCb cb)
-{
-    return _dev->register_periodic_callback(period_usec, cb);
-}
+// AP_HAL::Device::PeriodicHandle AP_AK09940A_BusDriver_HALDevice::register_periodic_callback(uint32_t period_usec, AP_HAL::Device::PeriodicCb cb)
+// {
+//     return _dev->register_periodic_callback(period_usec, cb);
+// }
 
 #endif  // AP_COMPASS_AK09940A_ENABLED
