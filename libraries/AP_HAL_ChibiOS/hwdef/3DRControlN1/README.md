@@ -1,6 +1,6 @@
 # 3DR Control N1
 
-The Control N1 is a flight controller produced by [3DR](https://store.3dr.com/control-n1/), launched on October 2025.
+The Control N1 is a flight controller produced by [3DR](https://store.3dr.com/control-n1/), launched on November 2025.
 
 ![3DR Control N1](https://vddwxegfxugwzpfnrrlp.supabase.co/storage/v1/object/public/Website-CDN/autopilot-img/control_n1.png)
 
@@ -24,9 +24,9 @@ The Control N1 is a flight controller produced by [3DR](https://store.3dr.com/co
     - uSD card socket/SDMMC broken out to Connectors
     - Serial Wire Debug (SWD)
 - Memory
-    - 1Mb F-RAM
+    - 8 MB Page EEPROM
 - Miscellaneous
-    - Onboard 3 color LED (WS2812B Type)
+    - Onboard 3 color LED (NeoPixel type)
     - Mini Buzzer
 - Connectors
     - 2x Front DF40 30-pin plug type connector
@@ -51,7 +51,7 @@ A PDF version of the above with more details is available [here](https://vddwxeg
 
 ## Pinout
 
-3DR Control N1 footprint has 3 Hirose DF40 series connectors with the following characteristics:
+3DR Control N1 footprint needs 3 Hirose DF40 series connectors with the following characteristics:
 
 | Reference | Pin count | Part number               |
 | --------- | --------- | ------------------------- |
@@ -163,8 +163,8 @@ The pinout for each connector is as follows:
 
 The Control N1 has 2 user ADC inputs:
 
-- ADC1 Pin18 -> Battery Voltage
-- ADC1 Pin10 -> Battery Current
+- ADC1 Pin 18 -> Battery Voltage
+- ADC1 Pin 10 -> Battery Current
 
 And one internal ADC input:
 
