@@ -13,19 +13,15 @@
    along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "AP_Compass_AK09940A.h"
-#include <cstdint>
+#include "AP_Compass_config.h"
 
 #if AP_COMPASS_AK09940A_ENABLED
 
-// #include <assert.h>
-#include <stdio.h>
-#include <utility>
-
-#include <AP_Math/AP_Math.h>
+#include "AP_Compass_AK09940A.h"
 #include <AP_HAL/AP_HAL.h>
-
-#define AK09940A_I2C_ADDR                               0x0C
+#include <utility>
+#include <AP_Math/AP_Math.h>
+#include <stdio.h>
 
 #define AK09940A_WIA1                                   0x00
 #       define      AK09940A_MFG_ID                     0x48
@@ -55,6 +51,7 @@
 #        define    AK09940A_CONTINUOUS_MODE7            0x0E // 1 kHz
 #        define    AK09940A_CONTINUOUS_MODE8            0x0F // 2.5 kHz
 #        define    AK09940A_SELFTEST_MODE               0x10 
+#        define    AK09940A_EXT_TRIGGER_MODE            0x18
 #        define    AK09940A_SENSORDRIVE_LP1             (0x00)
 #        define    AK09940A_SENSORDRIVE_LP2             (0x01 << 5)
 #        define    AK09940A_SENSORDRIVE_LN1             (0x10 << 5)
@@ -66,21 +63,21 @@
 
 #define AK09940A_MILLIGAUSS_SCALE                       10.0f
 
-extern const AP_HAL::HAL &hal;
+// extern const AP_HAL::HAL &hal;
 
-AP_Compass_AK09940A::AP_Compass_AK09940A(AP_HAL::OwnPtr<AP_HAL::Device> dev,
+AP_Compass_AK09940A::AP_Compass_AK09940A(AP_HAL::I2CDevice *dev,
                                      enum Rotation rotation)
     : _dev(std::move(dev))
     , _rotation(rotation)
 {
 }
 
-AP_Compass_AK09940A::~AP_Compass_AK09940A()
-{
-    delete _dev;
-}
+// AP_Compass_AK09940A::~AP_Compass_AK09940A()
+// {
+//     delete _dev;
+// }
 
-AP_Compass_Backend *AP_Compass_AK09940A::probe(AP_HAL::OwnPtr<AP_HAL::I2CDevice> dev,
+AP_Compass_Backend *AP_Compass_AK09940A::probe(AP_HAL::I2CDevice *dev,
                                              enum Rotation rotation)
 {
     if (!dev) {
@@ -98,13 +95,14 @@ AP_Compass_Backend *AP_Compass_AK09940A::probe(AP_HAL::OwnPtr<AP_HAL::I2CDevice>
 
 bool AP_Compass_AK09940A::init()
 {
-    AP_HAL::Semaphore *dev_sem = _dev->get_semaphore();
-    _dev->get_semaphore()->take_blocking();
-    _dev->set_retries(3);
+    WITH_SEMAPHORE(_dev->get_semaphore());
+    // AP_HAL::Semaphore *dev_sem = _dev->get_semaphore();
+    // _dev->get_semaphore()->take_blocking();
+    // _dev->set_retries(3);
 
     if (!_check_id()) {
-        DEV_PRINTF("AK09940A: Wrong device ID\n");
-        goto fail;
+        ::printf("AK09940A: Wrong device ID\n");
+        return false;
     }
     
     // if (!_self_test()) {
@@ -112,30 +110,22 @@ bool AP_Compass_AK09940A::init()
     //     goto fail;
     // }
 
-    // if (!_dev->start_measurements()) {
-    //     DEV_PRINTF("AK09940A: Could not start measurements\n");
-    //     goto fail;
-    // }
-
-    _initialized = true;
+    _setup_mode(AK09940A_CONTINUOUS_MODE4); // Set continuous mode 100Hz
 
     /* register the compass instance in the frontend */
     _bus->set_device_type(DEVTYPE_AK09940A);
     if (!register_compass(_bus->get_bus_id(), _compass_instance)) {
-        goto fail;
+        return false;
     }
     set_dev_id(_compass_instance, _bus->get_bus_id());
 // 
     set_rotation(_compass_instance, _rotation);
-    dev_sem->give();
+    // dev_sem->give();
 
-    _dev->register_periodic_callback(10000, FUNCTOR_BIND_MEMBER(&AP_Compass_AK09940A::_update, void));
+    _dev->register_periodic_callback(1000000U/100U, FUNCTOR_BIND_MEMBER(&AP_Compass_AK09940A::_update, void));
 
     return true;
 
-fail:
-    dev_sem->give();
-    return false;
 }
 
 void AP_Compass_AK09940A::read()
@@ -171,7 +161,7 @@ void AP_Compass_AK09940A::_update()
     // }
 
     Vector3f raw_field;
-    // raw_field = Vector3f(regs.val[0], regs.val[1], regs.val[2]);
+    raw_field = Vector3f(data.magx[0], data.magy[0], data.magz[0]);
     // if (is_zero(raw_field.x) && is_zero(raw_field.y) && is_zero(raw_field.z)) {
     //     return;
     // }
@@ -196,6 +186,7 @@ bool AP_Compass_AK09940A::_check_id()
         _bus->register_read(AK09940A_WIA1, &mfgid);
         _bus->register_read(AK09940A_WIA2, &deviceid);
         if (deviceid == AK09940A_DEV_ID && mfgid == AK09940A_MFG_ID) {
+            ::printf("AK09940A: Device ID matched\n");
             return true;
         }
     }
@@ -207,7 +198,7 @@ bool AP_Compass_AK09940A::_reset()
     return _bus->register_write(AK09940A_CNTL4, AK09940A_RESET);
 }
 
-bool AP_Compass_AK09940A::_set_mode(uint8_t mode)
+bool AP_Compass_AK09940A::_setup_mode(uint8_t mode)
 {
     return _bus->register_write(AK09940A_CNTL3, mode);
 }
@@ -252,36 +243,5 @@ bool AP_Compass_AK09940A::_self_test()
 
     return true;
 }
-
-// /* AP_HAL::I2CDevice implementation of the AK09940A */
-// AP_AK09940A_BusDriver_HALDevice::AP_AK09940A_BusDriver_HALDevice(AP_HAL::OwnPtr<AP_HAL::I2CDevice> dev)
-//     : _dev(std::move(dev))
-// {
-// }
-
-// bool AP_AK09940A_BusDriver_HALDevice::block_read(uint8_t reg, uint8_t *buf, uint32_t size)
-// {
-//     return _dev->read_registers(reg, buf, size);
-// }
-
-// bool AP_AK09940A_BusDriver_HALDevice::register_read(uint8_t reg, uint8_t *val)
-// {
-//     return _dev->read_registers(reg, val, 1);
-// }
-
-// bool AP_AK09940A_BusDriver_HALDevice::register_write(uint8_t reg, uint8_t val)
-// {
-//     return _dev->write_register(reg, val);
-// }
-
-// AP_HAL::Semaphore *AP_AK09940A_BusDriver_HALDevice::get_semaphore()
-// {
-//     return _dev->get_semaphore();
-// }
-
-// AP_HAL::Device::PeriodicHandle AP_AK09940A_BusDriver_HALDevice::register_periodic_callback(uint32_t period_usec, AP_HAL::Device::PeriodicCb cb)
-// {
-//     return _dev->register_periodic_callback(period_usec, cb);
-// }
 
 #endif  // AP_COMPASS_AK09940A_ENABLED

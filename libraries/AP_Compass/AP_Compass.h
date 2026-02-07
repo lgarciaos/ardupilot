@@ -497,6 +497,9 @@ private:
 #if AP_COMPASS_LIS2MDL_ENABLED
         DRIVER_LIS2MDL  =23,
 #endif
+#if AP_COMPASS_AK09940A_ENABLED
+        DRIVER_AK09940A =24,
+#endif
 
 };
 
