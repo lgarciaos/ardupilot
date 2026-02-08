@@ -35,6 +35,8 @@
 #define AK09940_ST1                                     0x10
 
 #define AK09940A_HXL                                    0x11
+#define AK09940A_TMPS                                   0x1A
+#define AK09940A_ST2                                    0x1B
 
 /* bit definitions for AK09940A CNTL1 */
 #define AK09940A_CNTL1                                  0x0A
@@ -65,9 +67,11 @@
 
 // extern const AP_HAL::HAL &hal;
 
-AP_Compass_AK09940A::AP_Compass_AK09940A(AP_HAL::I2CDevice *dev,
-                                     enum Rotation rotation)
+AP_Compass_AK09940A::AP_Compass_AK09940A(AP_HAL::OwnPtr<AP_HAL::Device> dev,
+                                          bool force_external,
+                                          enum Rotation rotation)
     : _dev(std::move(dev))
+    , _force_external(force_external)
     , _rotation(rotation)
 {
 }
@@ -77,14 +81,15 @@ AP_Compass_AK09940A::AP_Compass_AK09940A(AP_HAL::I2CDevice *dev,
 //     delete _dev;
 // }
 
-AP_Compass_Backend *AP_Compass_AK09940A::probe(AP_HAL::I2CDevice *dev,
+AP_Compass_Backend *AP_Compass_AK09940A::probe(AP_HAL::OwnPtr<AP_HAL::Device> dev,
+                                             bool force_external,
                                              enum Rotation rotation)
 {
     if (!dev) {
         return nullptr;
     }
     
-    AP_Compass_AK09940A *sensor = NEW_NOTHROW AP_Compass_AK09940A(std::move(dev), rotation);
+    AP_Compass_AK09940A *sensor = NEW_NOTHROW AP_Compass_AK09940A(std::move(dev), force_external, rotation);
     if (!sensor || !sensor->init()) {
         delete sensor;
         return nullptr;
@@ -100,26 +105,28 @@ bool AP_Compass_AK09940A::init()
     // _dev->get_semaphore()->take_blocking();
     // _dev->set_retries(3);
 
-    if (!_check_id()) {
-        ::printf("AK09940A: Wrong device ID\n");
-        return false;
-    }
+    // if (!_check_id()) {
+    //     ::printf("AK09940A: Wrong device ID\n");
+    //     return false;
+    // }
     
     // if (!_self_test()) {
     //     DEV_PRINTF("AK09940A: Could not read calibration data\n");
     //     goto fail;
     // }
 
-    _setup_mode(AK09940A_CONTINUOUS_MODE4); // Set continuous mode 100Hz
+    // _setup_mode(AK09940A_CONTINUOUS_MODE4); // Set continuous mode 100Hz
 
     /* register the compass instance in the frontend */
-    _bus->set_device_type(DEVTYPE_AK09940A);
-    if (!register_compass(_bus->get_bus_id(), _compass_instance)) {
+    _dev->set_device_type(DEVTYPE_AK09940A);
+    if (!register_compass(_dev->get_bus_id())) {
         return false;
     }
-    set_dev_id(_compass_instance, _bus->get_bus_id());
+    // set_dev_id(_compass_instance, _dev->get_bus_id());
+    printf("%s found on bus %u id %u address 0x%02x\n", name,
+           _dev->bus_num(), unsigned(_dev->get_bus_id()), _dev->get_bus_address());
 // 
-    set_rotation(_compass_instance, _rotation);
+    set_rotation(_rotation);
     // dev_sem->give();
 
     _dev->register_periodic_callback(1000000U/100U, FUNCTOR_BIND_MEMBER(&AP_Compass_AK09940A::_update, void));
@@ -130,11 +137,8 @@ bool AP_Compass_AK09940A::init()
 
 void AP_Compass_AK09940A::read()
 {
-    if (!_initialized) {
-        return;
-    }
 
-    drain_accumulated_samples(_compass_instance);
+    drain_accumulated_samples();
 }
 
 void AP_Compass_AK09940A::_update()
@@ -146,11 +150,11 @@ void AP_Compass_AK09940A::_update()
         uint8_t magz[3];
     } data;
     
-    if (!_dev->read_bytes(AK09940A_HXL, (uint8_t *)&data, sizeof(data))) {
+    if (!_dev->read_registers(AK09940A_HXL, (uint8_t *)&data, sizeof(data))) {
         return;
     }
-    uint32_t st2;
-    if(!_dev->read_byte(AK09940A_ST2, &st2)) {
+    uint8_t st2;
+    if(!_dev->read_registers(AK09940A_ST2, &st2, 1)) {
         return;
     }
    
@@ -170,7 +174,7 @@ void AP_Compass_AK09940A::_update()
     // _make_adc_sensitivity_adjustment(raw_field);
     raw_field *= AK09940A_MILLIGAUSS_SCALE;
 
-    accumulate_sample(raw_field, _compass_instance, 10);
+    accumulate_sample(raw_field, _compass_instance);
 }
 
 bool AP_Compass_AK09940A::_check_id()
@@ -179,12 +183,12 @@ bool AP_Compass_AK09940A::_check_id()
         uint8_t deviceid = 0;
         uint8_t mfgid = 0;
 
-        // if (_bus->register_read(AK09940A_WIA, &deviceid) &&
+        // if (_dev->register_read(AK09940A_WIA, &deviceid) &&
         //     deviceid == AK09940A_Device_ID) {
         //     return true;
         // }
-        _bus->register_read(AK09940A_WIA1, &mfgid);
-        _bus->register_read(AK09940A_WIA2, &deviceid);
+        _dev->read_registers(AK09940A_WIA1, &mfgid, 1);
+        _dev->read_registers(AK09940A_WIA2, &deviceid, 1);
         if (deviceid == AK09940A_DEV_ID && mfgid == AK09940A_MFG_ID) {
             ::printf("AK09940A: Device ID matched\n");
             return true;
@@ -195,28 +199,28 @@ bool AP_Compass_AK09940A::_check_id()
 
 bool AP_Compass_AK09940A::_reset()
 {
-    return _bus->register_write(AK09940A_CNTL4, AK09940A_RESET);
+    return _dev->write_register(AK09940A_CNTL4, AK09940A_RESET);
 }
 
 bool AP_Compass_AK09940A::_setup_mode(uint8_t mode)
 {
-    return _bus->register_write(AK09940A_CNTL3, mode);
+    return _dev->write_register(AK09940A_CNTL3, mode);
 }
 
 bool AP_Compass_AK09940A::_set_sensordrive(uint8_t sensordrive)
 {
     uint8_t reg_ctrl3 = 0;
-    _dev->read(AK09940A_CNTL3, &reg_ctrl3);
+    _dev->read_registers(AK09940A_CNTL3, &reg_ctrl3, 1);
     reg_ctrl3 |= sensordrive; //FIXHERE 
-    return _bus->register_write(AK09940A_CNTL3, sensordrive);
+    return _dev->write_register(AK09940A_CNTL3, reg_ctrl3);
 }
 
 bool AP_Compass_AK09940A::_enable_fifo()
 {
     uint8_t reg_ctrl3 = 0;
-    _dev->read(AK09940A_CNTL3, &reg_ctrl3);
-    reg_ctrl3 |= AK09940A_FIFO_EN;
-    return _dev->register_write(AK09940A_CNTL3, reg_ctrl3);
+    _dev->read_registers(AK09940A_CNTL3, &reg_ctrl3, 1);
+    reg_ctrl3 |= AK09940A_FIFO;
+    return _dev->write_register(AK09940A_CNTL3, reg_ctrl3);
 }
 
 bool AP_Compass_AK09940A::_self_test()
@@ -230,11 +234,11 @@ bool AP_Compass_AK09940A::_self_test()
      // 6. Read ST2 register
      // 7. Store measurement data per axis.
      // 8. Repeat 
-    // _bus->register_write(AK09940A_CNTL1, AK09940A_FUSE_MODE | AK09940A_16BIT_ADC);
+    // _dev->register_write(AK09940A_CNTL1, AK09940A_FUSE_MODE | AK09940A_16BIT_ADC);
 
     // uint8_t response[3];
 
-    // _bus->block_read(AK09940A_ASAX, response, 3);
+    // _dev->block_read(AK09940A_ASAX, response, 3);
 
     // for (int i = 0; i < 3; i++) {
     //     float data = response[i];

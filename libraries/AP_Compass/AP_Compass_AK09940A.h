@@ -29,12 +29,13 @@
 #include "AP_Compass.h"
 #include "AP_Compass_Backend.h"
 
-#define HAL_COMPASS_AK09940A_I2C_ADDRESS 0x0C
+#define HAL_COMPASS_AK09940A_I2C_ADDR 0x0C
 
 class AP_Compass_AK09940A : public AP_Compass_Backend
 {
 public:
-    static AP_Compass_Backend *probe(AP_HAL::I2CDevice *dev,
+    static AP_Compass_Backend *probe(AP_HAL::OwnPtr<AP_HAL::Device> dev,
+                                     bool force_external,
                                      enum Rotation rotation);
 
     static constexpr const char *name = "AK09940A";
@@ -44,16 +45,20 @@ public:
     void read() override;
 
 private:
-    AP_Compass_AK09940A(AP_HAL::I2CDevice *dev,
+    AP_Compass_AK09940A(AP_HAL::OwnPtr<AP_HAL::Device> dev,
+                      bool force_external,
                       enum Rotation rotation);
 
     bool init();
-    void _make_factory_sensitivity_adjustment(Vector3f &field) const;
+    
+    void _compensate_reading(Vector3f &field);
 
     bool _reset();
-    bool _setup_mode();
+    bool _setup_mode(uint8_t mode);
     bool _check_id();
+    bool _set_sensordrive(uint8_t sensordrive);
     bool _self_test();
+    bool _enable_fifo();
 
     void _update();
 
@@ -62,6 +67,7 @@ private:
     float _comp_factor[3] {0, 0, 0};
 
     uint8_t _compass_instance;
+    bool _force_external;
     enum Rotation _rotation;
 };
 
