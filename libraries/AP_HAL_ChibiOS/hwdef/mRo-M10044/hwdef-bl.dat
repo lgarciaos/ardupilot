@@ -9,7 +9,7 @@ FLASH_BOOTLOADER_LOAD_KB 26
 APP_START_OFFSET_KB 4
 
 # board ID for firmware load
-APJ_BOARD_ID 1122
+APJ_BOARD_ID AP_HW_mRo-M10044 
 
 # setup build for a peripheral firmware
 env AP_PERIPH 1
